@@ -1,14 +1,17 @@
-//! Mouse input: text selection, scrollback and reporting to applications.
+//! Mouse input: text selection, scrollback, links and reporting to
+//! applications.
 //!
 //! When the application enables mouse reporting, events go to it; holding
-//! shift selects text instead.
+//! shift selects text instead. Command-click opens a web link.
 
 use gpui_kit::*;
 use koi_term::state::grid::{Dimensions, Scroll};
 use koi_term::state::index::{Column, Line, Side};
 use koi_term::state::selection::{Selection, SelectionType};
 use koi_term::state::term::TermMode;
-use koi_term::{MouseButton as TermButton, MouseEvent as TermMouse, encode_key, encode_mouse};
+use koi_term::{
+    MouseButton as TermButton, MouseEvent as TermMouse, encode_key, encode_mouse, link_at,
+};
 
 use super::{TerminalView, term_modifiers};
 
@@ -80,6 +83,13 @@ impl TerminalView {
         else {
             return;
         };
+        if event.modifiers.platform && button == TermButton::Left {
+            let point = self.grid_point(hit);
+            if let Some(url) = link_at(&self.session.term(), point) {
+                cx.open_url(&url);
+            }
+            return;
+        }
         if self.reports_mouse(&event.modifiers) {
             self.last_reported = Some(hit);
             self.report(TermMouse::Press(button), &event.modifiers, hit);

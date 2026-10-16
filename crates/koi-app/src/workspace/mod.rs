@@ -33,7 +33,7 @@ use gpui_kit::component::{ActiveTheme, WindowExt, v_flex};
 use gpui_kit::*;
 use koi_core::git::{self, Branch, FileChange, Worktree};
 use koi_core::integration::{
-    EXECUTABLE_ENV, Integration, PI_PROGRAM_STATUS_ENV, RESUME_ENV, STATUS_ENV, TITLE_ENV,
+    EXECUTABLE_ENV, Integration, PI_TERMINAL_ENV, RESUME_ENV, STATUS_ENV, TITLE_ENV,
 };
 use koi_core::resources::Usage;
 use koi_core::{
@@ -300,7 +300,9 @@ impl WorkspaceView {
         let mut command = CommandBuilder::new(&argv[0]);
         command.args(&argv[1..]);
         command.cwd(&record.dir);
-        command.env(PI_PROGRAM_STATUS_ENV, "1");
+        for (key, value) in PI_TERMINAL_ENV {
+            command.env(key, value);
+        }
         if self.status_watcher.is_some() && !agent.command.is_empty() {
             let status_file = self.paths.status_file(record.id);
             // A file left by an earlier run would report a stale state.

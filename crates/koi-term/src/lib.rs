@@ -4,6 +4,7 @@
 //! This crate has no UI dependency; the app renders the state it exposes.
 
 mod keys;
+mod links;
 mod modifiers;
 mod mouse;
 mod palette;
@@ -16,6 +17,7 @@ mod summary;
 
 pub use alacritty_terminal as state;
 pub use keys::encode_key;
+pub use links::link_at;
 pub use modifiers::Modifiers;
 pub use mouse::{MouseButton, MouseEvent, encode_mouse, reports};
 pub use palette::Palette;

@@ -19,10 +19,11 @@ pub const TITLE_ENV: &str = "KOI_TITLE_FILE";
 /// Environment variable holding the path for an agent's resumable session.
 pub const RESUME_ENV: &str = "KOI_RESUME_FILE";
 
-/// Environment variable making Pi report its state with OSC 7501 without
-/// asking the terminal first. Set for every session, it also reaches a Pi
-/// started by hand in the session's shell.
-pub const PI_PROGRAM_STATUS_ENV: &str = "PI_PROGRAM_STATUS";
+/// Environment for every session, telling Pi which terminal features Koi
+/// supports, as Pi does not recognise Koi: state reports (OSC 7501) and
+/// hyperlinks (OSC 8), which stay whole when Pi wraps them across rows.
+/// Being in the environment, they also reach a Pi started by hand.
+pub const PI_TERMINAL_ENV: [(&str, &str); 2] = [("PI_PROGRAM_STATUS", "1"), ("PI_HYPERLINKS", "1")];
 
 /// Environment variable with Koi's executable path for agent hooks.
 pub const EXECUTABLE_ENV: &str = "KOI_EXECUTABLE";
