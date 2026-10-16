@@ -15,6 +15,7 @@ mod opencode;
 mod overview;
 mod quick_open;
 mod refresh;
+mod replies;
 mod resources;
 mod resume;
 mod sidebar;
@@ -33,6 +34,7 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, Icon, WindowExt, v_flex};
 use gpui_kit::*;
 use koi_core::git::{self, Branch, FileChange, Worktree};
+use koi_core::history::Replies;
 use koi_core::integration::{
     EXECUTABLE_ENV, Integration, PI_TERMINAL_ENV, RESUME_ENV, STATUS_ENV, TITLE_ENV,
 };
@@ -143,6 +145,10 @@ pub struct WorkspaceView {
     usage: HashMap<SessionId, Usage>,
     /// Latest memory of Koi itself.
     app_memory: Option<u64>,
+    /// Opening line of the latest reply of each agent session, once saved.
+    replies: HashMap<SessionId, String>,
+    /// Replies already read, kept between refreshes.
+    reply_cache: Replies,
     /// Samples resources while the window is active.
     sampler: Option<Task<()>>,
     /// Number of unseen sessions last shown on the Dock icon.
@@ -215,6 +221,8 @@ impl WorkspaceView {
             detached: HashMap::new(),
             usage: HashMap::new(),
             app_memory: None,
+            replies: HashMap::new(),
+            reply_cache: Replies::default(),
             sampler: None,
             badge: 0,
             _watch_tasks: watch_tasks.into_iter().flatten().collect(),

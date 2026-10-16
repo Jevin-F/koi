@@ -40,6 +40,19 @@ fn thread_names(index: &Path) -> HashMap<String, String> {
         .collect()
 }
 
+/// The rollout file of conversation `id`, named `rollout-<time>-<id>.jsonl`.
+pub(super) fn rollout_of(home: &Path, id: &str) -> Option<PathBuf> {
+    let suffix = format!("-{id}.jsonl");
+    rollouts(&home.join(".codex/sessions"))
+        .into_iter()
+        .map(|(path, _)| path)
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(&suffix))
+        })
+}
+
 /// Rollout files in the date directories below `root`.
 fn rollouts(root: &Path) -> Vec<(PathBuf, SystemTime)> {
     let subdirs = |dir: &Path| -> Vec<PathBuf> {

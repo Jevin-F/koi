@@ -1,5 +1,6 @@
 //! Memory and CPU of each session and of Koi itself, sampled while the
 //! window is active and shown in the status bar, the list and the overview.
+//! The latest replies of agent sessions are refreshed on the same beat.
 
 use std::time::Duration;
 
@@ -34,12 +35,13 @@ impl WorkspaceView {
                     .background_executor()
                     .spawn(async { ProcessTable::read() })
                     .await;
-                if this
-                    .update(cx, |this, cx| this.apply_sample(table.ok(), cx))
-                    .is_err()
-                {
+                let Ok(replies) = this.update(cx, |this, cx| {
+                    this.apply_sample(table.ok(), cx);
+                    this.refresh_replies(cx)
+                }) else {
                     break;
-                }
+                };
+                replies.await;
                 cx.background_executor().timer(INTERVAL).await;
             }
         }));

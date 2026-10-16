@@ -1,17 +1,12 @@
 //! Claude Code: `~/.claude/projects/<cwd with every non-alphanumeric
 //! character replaced by '-'>/<session id>.jsonl`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{PastSession, content_text, jsonl_files, lines, one_line, parse_if};
 
 pub(super) fn sessions(home: &Path, cwd: &Path) -> Vec<PastSession> {
-    let encoded: String = cwd
-        .to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    jsonl_files(&home.join(".claude/projects").join(encoded))
+    jsonl_files(&project_dir(home, cwd))
         .into_iter()
         .filter_map(|(path, updated)| {
             let id = path.file_stem()?.to_str()?.to_owned();
@@ -23,6 +18,16 @@ pub(super) fn sessions(home: &Path, cwd: &Path) -> Vec<PastSession> {
             })
         })
         .collect()
+}
+
+/// Where Claude Code keeps the conversations of `cwd`.
+pub(super) fn project_dir(home: &Path, cwd: &Path) -> PathBuf {
+    let encoded: String = cwd
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    home.join(".claude/projects").join(encoded)
 }
 
 /// The generated title, else the last prompt, else the first prompt.

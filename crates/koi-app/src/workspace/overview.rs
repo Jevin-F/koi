@@ -1,8 +1,9 @@
 //! The overview: one card per session with its state, place, resource usage and
-//! latest output. Clicking a card opens the session.
+//! latest reply or output. Clicking a card opens the session.
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, StyledExt, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use koi_core::SessionRecord;
 use rust_i18n::t;
@@ -45,7 +46,13 @@ impl WorkspaceView {
         let id = record.id;
         let status = self.status(id, cx);
         let running = self.running.get(&id);
-        let recent = running.and_then(|running| running.view.read(cx).recent_line());
+        // An agent's own words when Koi can read them; its screen otherwise.
+        let reply = self
+            .reply_source(record)
+            .map(|_| self.replies.get(&id).cloned());
+        let from_screen = reply.is_none();
+        let summary = reply
+            .unwrap_or_else(|| running.and_then(|running| running.view.read(cx).recent_line()));
         let project = directory_name(&record.project);
         let theme = cx.theme();
         v_flex()
@@ -114,9 +121,9 @@ impl WorkspaceView {
                 div()
                     .truncate()
                     .text_xs()
-                    .font_family(code_font(cx).family)
+                    .when(from_screen, |line| line.font_family(code_font(cx).family))
                     .text_color(theme.muted_foreground)
-                    .child(recent.unwrap_or_else(|| "—".to_owned())),
+                    .child(summary.unwrap_or_else(|| "—".to_owned())),
             )
             .child(self.render_session_metrics(id, cx))
             .into_any_element()

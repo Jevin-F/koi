@@ -1,4 +1,5 @@
-//! Past conversations that agents saved on disk, so they can be resumed.
+//! Past conversations that agents saved on disk, so they can be resumed, and
+//! the latest reply in the ones still running.
 //!
 //! Each agent keeps its own records: Claude Code under `~/.claude/projects`,
 //! Codex under `~/.codex/sessions`, pi under `~/.pi/agent/sessions` and
@@ -10,6 +11,7 @@ mod claude;
 mod codex;
 mod opencode;
 mod pi;
+mod reply;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -18,6 +20,8 @@ use std::time::SystemTime;
 
 use crate::Agent;
 use crate::integration::Integration;
+
+pub use reply::{Replies, reads_replies};
 
 /// A conversation an agent can pick up again.
 #[derive(Clone, Debug, PartialEq, Eq)]
