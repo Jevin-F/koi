@@ -71,6 +71,9 @@ mod tests {
 
     #[gpui_kit::test]
     fn starts_and_renders_a_restored_session(cx: &mut TestAppContext) {
+        // The session runs a real shell, whose output and file events wake
+        // the app from their own threads at times the test cannot control.
+        cx.executor().allow_parking();
         let home = std::env::temp_dir().join(format!("koi-startup-test-{}", std::process::id()));
         // A plain folder beside Koi's state, so that saving state does not
         // show up as file changes in the project.
