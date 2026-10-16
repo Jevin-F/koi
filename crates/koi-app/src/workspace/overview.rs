@@ -2,7 +2,7 @@
 //! latest output. Clicking a card opens the session.
 
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::{ActiveTheme, IconName, Sizable, StyledExt, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, StyledExt, h_flex, v_flex};
 use gpui_kit::*;
 use koi_core::SessionRecord;
 use rust_i18n::t;
@@ -19,7 +19,9 @@ impl WorkspaceView {
                 .size_full()
                 .items_center()
                 .justify_center()
+                .gap_3()
                 .text_color(cx.theme().muted_foreground)
+                .child(Icon::new(gpui_kit::assets::IconName::Bot).size_8())
                 .child(t!("overview.empty"))
                 .into_any_element();
         }

@@ -73,7 +73,8 @@ impl WorkspaceView {
     }
 
     /// Buttons switching the active session between its terminal and the
-    /// changes or files of its worktree; none on the overview.
+    /// changes or files of its worktree; none on the overview, and no changes
+    /// in a plain folder.
     fn render_view_switch(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let record = self.workspace.session(self.workspace.active?)?;
         let current = self.active_panel();
@@ -81,6 +82,7 @@ impl WorkspaceView {
             Some(count) if count > 0 => t!("tabs.changes_count", count = count),
             _ => t!("tabs.changes"),
         };
+        let folder = self.is_folder(&record.project);
         let buttons = [
             (
                 "show-terminal",
@@ -100,14 +102,16 @@ impl WorkspaceView {
                 gpui_kit::assets::IconName::Files,
                 t!("tabs.files"),
             ),
-        ];
+        ]
+        .into_iter()
+        .filter(|(_, panel, ..)| !(folder && *panel == Some(Panel::Changes)));
         let theme = cx.theme();
         Some(
             h_flex()
                 .flex_none()
                 .px_2()
                 .gap_1()
-                .children(buttons.into_iter().map(|(id, panel, icon, label)| {
+                .children(buttons.map(|(id, panel, icon, label)| {
                     let selected = current == panel;
                     let tooltip = label.into_owned();
                     let selected_bg = theme.foreground.opacity(0.20);

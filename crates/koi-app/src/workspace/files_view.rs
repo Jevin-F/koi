@@ -15,7 +15,7 @@ use gpui_kit::*;
 use koi_core::file_language::language_for;
 use koi_core::file_tabs::FileTabs;
 use koi_core::file_tree::{FileTree, TreeRow, ancestors};
-use koi_core::git;
+use koi_core::project_files;
 
 use super::file_icon::{file_icon, folder_icon};
 use rust_i18n::t;
@@ -69,7 +69,7 @@ impl FilesView {
     /// Called when files in the worktree change.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let dir = self.dir.clone();
-        let task = cx.background_spawn(async move { git::files(&dir) });
+        let task = cx.background_spawn(async move { project_files::files(&dir) });
         cx.spawn(async move |this, cx| {
             // An unreadable list keeps showing the previous one.
             let Ok(files) = task.await else {

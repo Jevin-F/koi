@@ -72,11 +72,14 @@ mod tests {
     #[gpui_kit::test]
     fn starts_and_renders_a_restored_session(cx: &mut TestAppContext) {
         let home = std::env::temp_dir().join(format!("koi-startup-test-{}", std::process::id()));
-        std::fs::create_dir_all(&home).unwrap();
+        // A plain folder beside Koi's state, so that saving state does not
+        // show up as file changes in the project.
+        let project = home.join("project");
+        std::fs::create_dir_all(&project).unwrap();
         let paths = koi_core::AppPaths::in_home(&home);
         let mut workspace = koi_core::Workspace::default();
-        workspace.add_project(home.clone());
-        workspace.add_session(&home, home.clone(), "shell", Vec::new());
+        workspace.add_project(project.clone());
+        workspace.add_session(&project, project.clone(), "shell", Vec::new());
         koi_core::store::save(&paths.state_file(), &workspace).unwrap();
         let state_file = paths.state_file();
         let mut settings = koi_core::settings::Settings::default();
@@ -95,6 +98,10 @@ mod tests {
         let window = cx.update(|cx| cx.windows()[0]);
         cx.update_window(window, |_, window, cx| {
             window.render_frame(cx);
+            // A plain folder starts agents but has no worktrees or changes.
+            assert!(window.try_find(("start-agent", 1usize)).is_some());
+            assert!(window.try_find(("new-worktree", 0usize)).is_none());
+            assert!(window.try_find("show-changes").is_none());
             let sidebar = window.find("sidebar-rows").bounds();
             let from = point(sidebar.right() - px(2.), sidebar.center().y);
             window.drag(from, point(from.x + px(80.), from.y), cx);
@@ -141,7 +148,7 @@ mod tests {
                     .iter()
                     .any(|quad| quad.background.as_solid() == Some(selected_hover_color))
             );
-            window.hover("show-changes", cx);
+            window.hover("show-files", cx);
             window.render_frame(cx);
             assert!(
                 window
@@ -149,7 +156,7 @@ mod tests {
                     .iter()
                     .any(|quad| quad.background.as_solid() == Some(hover_color))
             );
-            for mode in ["show-terminal", "show-changes", "show-files"] {
+            for mode in ["show-terminal", "show-files"] {
                 window.hover(mode, cx);
                 window.render_frame(cx);
                 window.click(mode, cx);
@@ -162,7 +169,7 @@ mod tests {
             assert!(window.painted_quads().iter().any(
                 |quad| quad.background.as_solid() == Some(cx.theme().foreground.opacity(0.20))
             ));
-            window.hover("show-changes", cx);
+            window.hover("show-terminal", cx);
             window.render_frame(cx);
             assert!(window.painted_quads().iter().any(
                 |quad| quad.background.as_solid() == Some(cx.theme().foreground.opacity(0.10))

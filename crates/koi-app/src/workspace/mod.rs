@@ -30,7 +30,7 @@ use std::time::Instant;
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{ActiveTheme, WindowExt, v_flex};
+use gpui_kit::component::{ActiveTheme, Icon, WindowExt, v_flex};
 use gpui_kit::*;
 use koi_core::git::{self, Branch, FileChange, Worktree};
 use koi_core::integration::{
@@ -106,8 +106,11 @@ pub struct WorkspaceView {
     agents: Vec<Agent>,
     shell: String,
     workspace: Workspace,
-    /// Worktrees of each project, or why they could not be listed.
+    /// Worktrees of each project, or why they could not be listed. A plain
+    /// folder is listed as its only worktree.
     worktrees: HashMap<PathBuf, Result<Vec<Worktree>, String>>,
+    /// Projects that are plain folders rather than git repositories.
+    folders: HashSet<PathBuf>,
     running: HashMap<SessionId, Running>,
     focus: FocusHandle,
     window_title: String,
@@ -193,6 +196,7 @@ impl WorkspaceView {
             shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_owned()),
             workspace,
             worktrees: HashMap::new(),
+            folders: HashSet::new(),
             running: HashMap::new(),
             focus: cx.focus_handle(),
             window_title: String::new(),
@@ -487,13 +491,8 @@ impl WorkspaceView {
     }
 
     fn add_project_at(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
-        let root = match git::repo_root(path) {
-            Ok(root) => root,
-            Err(_) => {
-                let message = t!("error.not_a_repository", path = path.display());
-                return self.report(message, window, cx);
-            }
-        };
+        // A folder inside a repository adds the whole repository.
+        let root = git::repo_root(path).unwrap_or_else(|_| path.to_owned());
         if !self.workspace.add_project(root.clone()) {
             return self.report(t!("error.already_added", path = root.display()), window, cx);
         }
@@ -507,6 +506,7 @@ impl WorkspaceView {
             self.running.remove(&id);
         }
         self.worktrees.remove(root);
+        self.folders.remove(root);
         self.forget_git_dir(root);
         self.after_tab_change(window, cx);
     }
@@ -650,6 +650,11 @@ impl WorkspaceView {
         }
     }
 
+    /// Whether the project is a plain folder, without branches or changes.
+    fn is_folder(&self, project: &Path) -> bool {
+        self.folders.contains(project)
+    }
+
     /// The branch a session works on, or its directory name.
     fn place_name(&self, record: &SessionRecord) -> String {
         self.place_of(&record.project, &record.dir)
@@ -673,6 +678,7 @@ impl WorkspaceView {
                 .justify_center()
                 .gap_3()
                 .text_color(cx.theme().muted_foreground)
+                .child(Icon::new(gpui_kit::assets::IconName::FolderPlus).size_8())
                 .child(t!("workspace.no_projects"))
                 .child(
                     Button::new("add-project")

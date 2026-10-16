@@ -146,13 +146,17 @@ zh-CN = "项目"
 en = "detached HEAD"
 zh-CN = "游离 HEAD"
 
+[workspace.not_git]
+en = "not a git repository"
+zh-CN = "非 git 目录"
+
 [workspace.pick_folder]
 en = "Add Project"
 zh-CN = "添加项目"
 
 [workspace.no_projects]
-en = "Add a git repository to start running agents."
-zh-CN = "添加一个 git 仓库，开始运行 agent。"
+en = "Add a folder or git repository to start running agents."
+zh-CN = "添加一个目录或 git 仓库，开始运行 agent。"
 
 [workspace.no_session]
 en = "Start an agent from a worktree in the list."
@@ -590,10 +594,6 @@ zh-CN = "未知的 agent「%{agent}」"
 [error.start]
 en = "Could not start %{agent}: %{error}"
 zh-CN = "无法启动 %{agent}：%{error}"
-
-[error.not_a_repository]
-en = "%{path} is not inside a git repository"
-zh-CN = "%{path} 不在 git 仓库中"
 
 [error.already_added]
 en = "%{path} is already in the list"

@@ -36,7 +36,8 @@ impl WorkspaceView {
         self.panels.get(&self.workspace.active?).copied()
     }
 
-    /// Shows `panel` for the active session, or its terminal for `None`.
+    /// Shows `panel` for the active session, or its terminal for `None`. A
+    /// plain folder has no changes panel.
     pub(super) fn show_panel(
         &mut self,
         panel: Option<Panel>,
@@ -51,6 +52,9 @@ impl WorkspaceView {
         else {
             return;
         };
+        if panel == Some(Panel::Changes) && self.is_folder(&record.project) {
+            return;
+        }
         match panel {
             None => {
                 self.panels.remove(&record.id);

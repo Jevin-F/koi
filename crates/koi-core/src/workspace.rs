@@ -28,14 +28,14 @@ impl FromStr for SessionId {
     }
 }
 
-/// A git repository added by the user.
+/// A directory added by the user: a git repository or a plain folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Project {
     pub root: PathBuf,
 }
 
 impl Project {
-    /// Display name: the repository's directory name.
+    /// Display name: the directory's name.
     pub fn name(&self) -> String {
         self.root
             .file_name()

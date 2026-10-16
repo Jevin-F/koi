@@ -1,5 +1,6 @@
-//! Koi's domain logic: projects and their git worktrees, agents, user
-//! configuration and the persisted workspace. No UI dependency.
+//! Koi's domain logic: projects (git repositories or plain folders) and
+//! their git worktrees, agents, user configuration and the persisted
+//! workspace. No UI dependency.
 
 mod activity;
 mod agent;
@@ -14,6 +15,7 @@ pub mod integration;
 pub mod layout;
 pub mod opencode;
 mod paths;
+pub mod project_files;
 pub mod resources;
 pub mod session_label;
 pub mod settings;

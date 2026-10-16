@@ -76,6 +76,11 @@ pub fn repo_root(path: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(root.trim_end()))
 }
 
+/// Whether `path` is inside a git working tree.
+pub fn is_repository(path: &Path) -> bool {
+    repo_root(path).is_ok()
+}
+
 /// The directory holding the repository's shared git data (usually
 /// `<root>/.git`), the same for every worktree.
 pub fn common_dir(repo: &Path) -> Result<PathBuf> {
@@ -115,5 +120,13 @@ mod tests {
     fn errors_outside_a_repository() {
         let temp = TempDir::new();
         assert!(matches!(repo_root(temp.path()), Err(Error::Failed { .. })));
+        assert!(!is_repository(temp.path()));
+    }
+
+    #[test]
+    fn recognizes_a_repository() {
+        let temp = TempDir::new();
+        testing::init_repo(temp.path());
+        assert!(is_repository(temp.path()));
     }
 }

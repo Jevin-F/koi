@@ -11,7 +11,8 @@ use super::WorkspaceView;
 
 impl WorkspaceView {
     /// Lists the project's worktrees again, makes sure its git directory is
-    /// watched, and has the changes of its worktrees recounted.
+    /// watched, and has the changes of its worktrees recounted. A plain folder
+    /// is listed as its only worktree, so that agents can start in it.
     pub(super) fn refresh_worktrees(&mut self, project: &Path, cx: &mut Context<Self>) {
         let paths = |listed: Option<&Result<Vec<Worktree>, String>>| -> Vec<PathBuf> {
             listed
@@ -20,7 +21,17 @@ impl WorkspaceView {
                 .unwrap_or_default()
         };
         let previous = paths(self.worktrees.get(project));
-        let listed = git::worktrees(project).map_err(|error| error.to_string());
+        let listed = if git::is_repository(project) {
+            self.folders.remove(project);
+            git::worktrees(project).map_err(|error| error.to_string())
+        } else {
+            self.folders.insert(project.to_owned());
+            Ok(vec![Worktree {
+                path: project.to_owned(),
+                branch: None,
+                is_main: true,
+            }])
+        };
         self.worktrees.insert(project.to_owned(), listed);
         let current = paths(self.worktrees.get(project));
         for tree in &current {

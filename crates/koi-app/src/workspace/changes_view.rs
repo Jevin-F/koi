@@ -7,12 +7,13 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{ActiveTheme, Sizable, WindowExt, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, Icon, Sizable, WindowExt, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use koi_core::git::{self, ChangeKind, DiffLine, FileChange, LineKind, Tracking};
 use rust_i18n::t;
 
+use super::file_icon::file_icon;
 use crate::settings::code_font;
 
 const FILE_LIST_WIDTH: Pixels = px(280.);
@@ -261,6 +262,12 @@ impl ChangesView {
                         .text_xs()
                         .text_color(color)
                         .child(letter),
+                )
+                .child(
+                    Icon::new(file_icon(&name))
+                        .small()
+                        .flex_none()
+                        .text_color(theme.muted_foreground),
                 )
                 .child(div().flex_none().text_sm().child(name))
                 .child(

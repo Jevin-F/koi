@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use gpui_kit::*;
 use koi_core::SessionId;
-use koi_core::git;
+use koi_core::project_files;
 use rust_i18n::t;
 
 use super::{QuickOpen, WorkspaceView, directory_name};
@@ -83,7 +83,7 @@ impl WorkspaceView {
             .and_then(|id| self.workspace.session(id))
         {
             // Without a readable file list, quick open still offers everything else.
-            let files = git::files(&record.dir).unwrap_or_default();
+            let files = project_files::files(&record.dir).unwrap_or_default();
             items.extend(files.into_iter().map(|path| PickerItem {
                 kind: t!("quick_open.file").into(),
                 text: path.clone(),
