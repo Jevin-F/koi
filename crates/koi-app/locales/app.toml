@@ -1,0 +1,628 @@
+_version = 2
+
+# Menu bar titles.
+
+[menu.services]
+en = "Services"
+zh-CN = "服务"
+
+[menu.edit]
+en = "Edit"
+zh-CN = "编辑"
+
+[menu.workspace]
+en = "Workspace"
+zh-CN = "工作区"
+
+[menu.window]
+en = "Window"
+zh-CN = "窗口"
+
+# Commands, shown in menus, buttons and tooltips.
+
+[action.settings]
+en = "Settings…"
+zh-CN = "设置…"
+
+[action.hide]
+en = "Hide %{app}"
+zh-CN = "隐藏 %{app}"
+
+[action.hide_others]
+en = "Hide Others"
+zh-CN = "隐藏其他"
+
+[action.show_all]
+en = "Show All"
+zh-CN = "全部显示"
+
+[action.quit]
+en = "Quit %{app}"
+zh-CN = "退出 %{app}"
+
+[action.copy]
+en = "Copy"
+zh-CN = "复制"
+
+[action.paste]
+en = "Paste"
+zh-CN = "粘贴"
+
+[action.minimize]
+en = "Minimize"
+zh-CN = "最小化"
+
+[action.close_window]
+en = "Close Window"
+zh-CN = "关闭窗口"
+
+[action.add_project]
+en = "Add Project"
+zh-CN = "添加项目"
+
+[action.quick_open]
+en = "Quick Open…"
+zh-CN = "快速打开…"
+
+[action.show_overview]
+en = "Show Overview"
+zh-CN = "显示总览"
+
+[action.toggle_changes]
+en = "Toggle Terminal / Changes"
+zh-CN = "切换终端 / 改动"
+
+[action.toggle_files]
+en = "Toggle Terminal / Files"
+zh-CN = "切换终端 / 文件"
+
+[action.next_tab]
+en = "Next Tab"
+zh-CN = "下一个标签"
+
+[action.previous_tab]
+en = "Previous Tab"
+zh-CN = "上一个标签"
+
+[action.close_tab]
+en = "Close Tab"
+zh-CN = "关闭标签"
+
+[action.new_worktree]
+en = "New Worktree…"
+zh-CN = "新建 Worktree…"
+
+[action.delete_worktree]
+en = "Delete Worktree…"
+zh-CN = "删除 Worktree…"
+
+[action.remove_project]
+en = "Remove from List"
+zh-CN = "从列表移除"
+
+[action.start_agent]
+en = "Start Agent"
+zh-CN = "启动 Agent"
+
+[action.history]
+en = "Past Conversations…"
+zh-CN = "历史会话…"
+
+[action.close_session]
+en = "Close Session"
+zh-CN = "关闭会话"
+
+[action.rename_session]
+en = "Rename Session"
+zh-CN = "重命名会话"
+
+[action.restart]
+en = "Restart"
+zh-CN = "重新启动"
+
+[action.cancel]
+en = "Cancel"
+zh-CN = "取消"
+
+[action.create]
+en = "Create"
+zh-CN = "创建"
+
+[action.delete]
+en = "Delete"
+zh-CN = "删除"
+
+[action.remove]
+en = "Remove"
+zh-CN = "移除"
+
+# Session list and main area.
+
+[workspace.projects]
+en = "PROJECTS"
+zh-CN = "项目"
+
+[workspace.detached]
+en = "detached HEAD"
+zh-CN = "游离 HEAD"
+
+[workspace.pick_folder]
+en = "Add Project"
+zh-CN = "添加项目"
+
+[workspace.no_projects]
+en = "Add a git repository to start running agents."
+zh-CN = "添加一个 git 仓库，开始运行 agent。"
+
+[workspace.no_session]
+en = "Start an agent from a worktree in the list."
+zh-CN = "在左侧列表中选择一个 worktree 启动 agent。"
+
+[split.right]
+en = "Open in a Split on the Right"
+zh-CN = "在右侧分屏打开"
+
+[split.below]
+en = "Open in a Split Below"
+zh-CN = "在下方分屏打开"
+
+[split.close]
+en = "Close Split"
+zh-CN = "关闭分屏"
+
+[detached.open]
+en = "Open in New Window"
+zh-CN = "在新窗口中打开"
+
+[detached.notice]
+en = "This session is open in its own window."
+zh-CN = "这个会话在独立窗口中。"
+
+[detached.attach]
+en = "Move Back Here"
+zh-CN = "移回主窗口"
+
+[tabs.overview]
+en = "Overview"
+zh-CN = "总览"
+
+[tabs.terminal]
+en = "Terminal"
+zh-CN = "终端"
+
+[tabs.changes]
+en = "Changes"
+zh-CN = "改动"
+
+[tabs.changes_count]
+en = "Changes %{count}"
+zh-CN = "改动 %{count}"
+
+[tabs.files]
+en = "Files"
+zh-CN = "文件"
+
+[files.pick]
+en = "Pick a file on the left."
+zh-CN = "在左侧选择一个文件。"
+
+[files.loading]
+en = "Opening file…"
+zh-CN = "正在打开文件…"
+
+[files.save]
+en = "Save"
+zh-CN = "保存"
+
+[files.close_tab]
+en = "Close file"
+zh-CN = "关闭文件"
+
+[files.close_unsaved]
+en = "Discard changes to %{name}?"
+zh-CN = "放弃对 %{name} 的修改？"
+
+[files.close_unsaved_detail]
+en = "This file has unsaved changes. Closing its tab will discard them."
+zh-CN = "这个文件的修改尚未保存，关闭标签会丢失这些修改。"
+
+[files.discard]
+en = "Discard changes"
+zh-CN = "放弃修改"
+
+[files.unsaved_session]
+en = "Open files have unsaved changes that will be lost."
+zh-CN = "打开的文件有未保存的修改，关闭后会丢失。"
+
+[files.unsaved_worktree]
+en = "Open files in this worktree have unsaved changes that will be lost."
+zh-CN = "此 worktree 中打开的文件有未保存的修改，删除后会丢失。"
+
+[files.unsaved_quit]
+en = "Open files have unsaved changes. Quitting will discard them."
+zh-CN = "打开的文件有未保存的修改，退出会丢失这些修改。"
+
+[files.quit_title]
+en = "Quit Koi with unsaved files?"
+zh-CN = "仍有未保存的文件，退出 Koi？"
+
+[files.not_text]
+en = "This file is binary or larger than 2 MB, so it is not shown."
+zh-CN = "这是二进制文件或超过 2 MB，不在这里显示。"
+
+[files.unreadable]
+en = "Could not read the file: %{error}"
+zh-CN = "无法读取文件：%{error}"
+
+[files.save_failed]
+en = "Could not save the file: %{error}"
+zh-CN = "无法保存文件：%{error}"
+
+[workspace.change_count]
+en = "±%{count}"
+zh-CN = "±%{count}"
+
+[changes.message]
+en = "Commit message"
+zh-CN = "提交信息"
+
+[changes.commit_count]
+en = "Commit %{count} changes"
+zh-CN = "提交 %{count} 个改动"
+
+[changes.push]
+en = "Push"
+zh-CN = "推送"
+
+[changes.push_count]
+en = "Push ↑%{count}"
+zh-CN = "推送 ↑%{count}"
+
+[changes.pushed]
+en = "Pushed"
+zh-CN = "已推送"
+
+[changes.tracking]
+en = "→ %{upstream}  ↑%{ahead} ↓%{behind}"
+zh-CN = "→ %{upstream}  ↑%{ahead} ↓%{behind}"
+
+[changes.no_upstream]
+en = "No remote branch yet; pushing creates one."
+zh-CN = "还没有远端分支，推送时会自动创建。"
+
+[changes.clean]
+en = "No uncommitted changes."
+zh-CN = "没有未提交的改动。"
+
+[changes.no_diff]
+en = "Nothing to show for this file."
+zh-CN = "这个文件没有可显示的差异。"
+
+[overview.empty]
+en = "No agents yet. Start one from a worktree in the list."
+zh-CN = "还没有 agent。在左侧列表中选择一个 worktree 启动。"
+
+
+# Session states.
+
+[status.working]
+en = "Working"
+zh-CN = "工作中"
+
+[status.working_inferred]
+en = "Probably working"
+zh-CN = "可能在工作"
+
+[status.waiting]
+en = "Needs you"
+zh-CN = "等待确认"
+
+[status.idle]
+en = "Idle"
+zh-CN = "空闲"
+
+[status.idle_inferred]
+en = "Probably idle"
+zh-CN = "可能空闲"
+
+[status.finished]
+en = "Finished"
+zh-CN = "已完成"
+
+[status.running]
+en = "Running"
+zh-CN = "运行中"
+
+[status.shell]
+en = "Shell ready"
+zh-CN = "Shell 就绪"
+
+[status.exited]
+en = "Exited"
+zh-CN = "已退出"
+
+[status.failed]
+en = "Failed"
+zh-CN = "出错退出"
+
+# System notifications.
+
+[notify.waiting]
+en = "Waiting for your confirmation"
+zh-CN = "需要你确认"
+
+[notify.failed]
+en = "Exited with code %{code}"
+zh-CN = "进程出错退出，退出码 %{code}"
+
+[notify.finished]
+en = "Finished, waiting for your next instruction"
+zh-CN = "已完成，等待下一步指示"
+
+[terminal.exited]
+en = "Process exited"
+zh-CN = "进程已退出"
+
+[terminal.exited_with_code]
+en = "Process exited with code %{code}"
+zh-CN = "进程已退出，退出码 %{code}"
+
+[quick_open.placeholder]
+en = "Search sessions and files, start or resume an agent…"
+zh-CN = "搜索会话和文件，或启动、恢复 agent…"
+
+[picker.no_match]
+en = "Nothing matches."
+zh-CN = "没有匹配的结果。"
+
+[quick_open.session]
+en = "Session"
+zh-CN = "会话"
+
+[quick_open.start]
+en = "Start"
+zh-CN = "启动"
+
+[quick_open.start_agent]
+en = "Start %{agent}"
+zh-CN = "启动 %{agent}"
+
+[quick_open.file]
+en = "File"
+zh-CN = "文件"
+
+[quick_open.history]
+en = "History"
+zh-CN = "历史"
+
+# Resource usage.
+
+[resources.app]
+en = "Koi RSS %{memory}"
+zh-CN = "Koi RSS %{memory}"
+
+[resources.agents]
+en = "Agents RSS %{memory} · CPU %{cpu}%"
+zh-CN = "Agent 合计 RSS %{memory} · CPU %{cpu}%"
+
+[resources.cpu]
+en = "CPU"
+zh-CN = "CPU"
+
+[resources.rss]
+en = "RSS"
+zh-CN = "RSS"
+
+[resources.running]
+en = "Running sessions: %{count}"
+zh-CN = "%{count} 个会话运行中"
+
+# Dialogs.
+
+[dialog.new_worktree]
+en = "New Worktree"
+zh-CN = "新建 Worktree"
+
+[dialog.branch_placeholder]
+en = "Search branches, or type a new branch name…"
+zh-CN = "搜索分支，或输入新分支名…"
+
+[dialog.create_branch]
+en = "Create branch \"%{name}\" from the current HEAD"
+zh-CN = "新建分支「%{name}」（从当前 HEAD）"
+
+[branch.local]
+en = "Local"
+zh-CN = "本地"
+
+[branch.remote]
+en = "Remote"
+zh-CN = "远端"
+
+[branch.new]
+en = "New"
+zh-CN = "新建"
+
+[dialog.delete_worktree]
+en = "Delete worktree \"%{name}\"?"
+zh-CN = "删除 worktree「%{name}」？"
+
+[dialog.worktree_dirty]
+en = "It has uncommitted changes, which will be lost."
+zh-CN = "它有未提交的改动，删除后会丢失。"
+
+[dialog.worktree_clean]
+en = "It has no uncommitted changes."
+zh-CN = "它没有未提交的改动。"
+
+[dialog.worktree_status_unknown]
+en = "Its status could not be read (%{error})."
+zh-CN = "无法读取它的状态（%{error}）。"
+
+[dialog.branch_kept]
+en = "The branch is kept."
+zh-CN = "分支会保留。"
+
+[dialog.sessions_closed]
+en = "Running sessions to be closed: %{count}."
+zh-CN = "将关闭 %{count} 个运行中的会话。"
+
+[dialog.close_session]
+en = "Close %{agent} on %{place}?"
+zh-CN = "关闭「%{agent} · %{place}」？"
+
+[dialog.rename_session]
+en = "Name Session"
+zh-CN = "会话名称"
+
+[dialog.session_name_placeholder]
+en = "Name this task"
+zh-CN = "输入任务名称"
+
+[dialog.use_agent_name]
+en = "Use agent name (%{agent})"
+zh-CN = "使用 Agent 名称（%{agent}）"
+
+[dialog.close_agent_detail]
+en = "The Agent process ends and work in progress is interrupted. The conversation can be resumed later from Past Conversations."
+zh-CN = "Agent 进程会被结束，正在进行的工作会中断。之后可以在“历史会话”里恢复这段对话。"
+
+[dialog.close_program_detail]
+en = "Programs running in this terminal end. The session cannot be resumed."
+zh-CN = "终端里正在运行的程序会被结束，这个会话无法恢复。"
+
+[dialog.remove_project]
+en = "Remove \"%{name}\" from the list?"
+zh-CN = "从列表移除「%{name}」？"
+
+[dialog.disk_untouched]
+en = "Files and worktrees on disk are not touched."
+zh-CN = "磁盘上的文件和 worktree 不受影响。"
+
+[dialog.history]
+en = "Past conversations in \"%{name}\""
+zh-CN = "「%{name}」的历史会话"
+
+[dialog.no_history]
+en = "No Claude Code, Codex or pi conversations here yet."
+zh-CN = "这里还没有 Claude Code、Codex 或 pi 的历史会话。"
+
+[age.just_now]
+en = "just now"
+zh-CN = "刚刚"
+
+[age.minutes]
+en = "%{count} min ago"
+zh-CN = "%{count} 分钟前"
+
+[age.hours]
+en = "%{count} h ago"
+zh-CN = "%{count} 小时前"
+
+[age.days]
+en = "%{count} d ago"
+zh-CN = "%{count} 天前"
+
+# Settings window.
+
+[settings.title]
+en = "%{app} Settings"
+zh-CN = "%{app} 设置"
+
+[settings.appearance]
+en = "Appearance"
+zh-CN = "外观"
+
+[settings.dark]
+en = "Dark"
+zh-CN = "深色"
+
+[settings.light]
+en = "Light"
+zh-CN = "浅色"
+
+[settings.system]
+en = "Match System"
+zh-CN = "跟随系统"
+
+[settings.language]
+en = "Language"
+zh-CN = "语言"
+
+[settings.font]
+en = "Terminal font"
+zh-CN = "终端字体"
+
+[settings.font_size]
+en = "Font size"
+zh-CN = "字号"
+
+[settings.shortcuts]
+en = "Shortcuts"
+zh-CN = "快捷键"
+
+[settings.reset]
+en = "Default"
+zh-CN = "恢复默认"
+
+[settings.invalid_shortcut]
+en = "Not a valid shortcut, such as cmd-shift-k"
+zh-CN = "快捷键格式不对，示例：cmd-shift-k"
+
+# Problems reported as notifications.
+
+[error.config]
+en = "Could not load config.toml: %{error}"
+zh-CN = "无法读取 config.toml：%{error}"
+
+[error.settings]
+en = "Could not load the settings, so the defaults are used: %{error}"
+zh-CN = "无法读取设置，已使用默认设置：%{error}"
+
+[error.save_settings]
+en = "Could not save the settings: %{error}"
+zh-CN = "无法保存设置：%{error}"
+
+[error.save]
+en = "Could not save the workspace: %{error}"
+zh-CN = "无法保存工作区：%{error}"
+
+[error.restore]
+en = "Could not restore the previous workspace (%{error}). The file was moved to %{path}."
+zh-CN = "无法恢复上次的工作区（%{error}），原文件已移到 %{path}。"
+
+[error.unknown_agent]
+en = "Unknown agent \"%{agent}\""
+zh-CN = "未知的 agent「%{agent}」"
+
+[error.start]
+en = "Could not start %{agent}: %{error}"
+zh-CN = "无法启动 %{agent}：%{error}"
+
+[error.not_a_repository]
+en = "%{path} is not inside a git repository"
+zh-CN = "%{path} 不在 git 仓库中"
+
+[error.already_added]
+en = "%{path} is already in the list"
+zh-CN = "%{path} 已经在列表中"
+
+[error.invalid_branch]
+en = "\"%{branch}\" is not a valid branch name"
+zh-CN = "「%{branch}」不是有效的分支名"
+
+[error.status]
+en = "Agent states are unavailable: %{error}"
+zh-CN = "无法获取 agent 状态：%{error}"
+
+[error.watch]
+en = "Changes made outside Koi will not show up automatically: %{error}"
+zh-CN = "无法自动感知 Koi 之外的改动：%{error}"
+
+[error.no_remote]
+en = "This repository has no remote to push to."
+zh-CN = "这个仓库没有可推送的远端。"
+
+[error.git]
+en = "Git operation failed: %{error}"
+zh-CN = "git 操作失败：%{error}"

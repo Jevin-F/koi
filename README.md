@@ -1,0 +1,61 @@
+# Koi
+
+A native macOS app for running and watching many CLI coding agents
+(pi, Claude Code, Codex) from a single window.
+
+## Build
+
+```sh
+cargo run
+```
+
+The first build compiles GPUI and takes a few minutes; later builds are incremental.
+
+System notifications only work when Koi runs as an app bundle:
+
+```sh
+scripts/bundle-macos.sh            # target/release/Koi.app
+scripts/bundle-macos.sh --debug    # target/debug/Koi.app, faster to build
+scripts/bundle-macos.sh --install  # moves it to /Applications/Koi.app
+```
+
+With `--install`, no copy is left in `target`, so Launchpad lists Koi once.
+
+## Share a macOS installer
+
+Run `scripts/package-macos.sh` to create a drag-to-Applications DMG, or pass
+`--pkg` for a PKG installer. The package matches the build machine's
+architecture. An unsigned package contains an ad-hoc-signed app, so Gatekeeper
+may block it on another Mac.
+
+For a package that opens normally on another Mac, join the Apple Developer
+Program and install a **Developer ID Application** certificate in the login
+keychain. A signed PKG additionally needs a **Developer ID Installer**
+certificate. Save notarization credentials; this command prompts securely for
+an app-specific password:
+
+```sh
+xcrun notarytool store-credentials koi --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID
+```
+
+Then build the signed and notarized DMG:
+
+```sh
+KOI_SIGN_IDENTITY="Developer ID Application: YOUR_NAME (TEAM_ID)" \
+KOI_NOTARY_PROFILE=koi scripts/package-macos.sh
+```
+
+For a signed PKG, also set `KOI_INSTALLER_IDENTITY` and pass `--pkg`. The script
+signs the app with the hardened runtime, submits the package for Apple's
+notarization, and staples the ticket. Check available certificates with
+`security find-identity -v -p codesigning`.
+
+## Layout
+
+| Path | Purpose |
+| --- | --- |
+| `crates/koi-app` | GPUI application: windows, menus, views; texts in `locales/app.toml` |
+| `crates/koi-core` | Projects, git worktrees, agents, configuration, saved workspace (no UI) |
+| `crates/koi-term` | Terminal sessions: PTY processes, screen state, input encoding (no UI) |
+| `packaging/macos` | `Info.plist` for the app bundle |
+| `scripts` | Build helpers |

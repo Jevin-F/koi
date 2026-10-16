@@ -1,0 +1,13 @@
+[package]
+name = "koi-term"
+description = "Terminal sessions for Koi: PTY processes, terminal state and input encoding."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+alacritty_terminal.workspace = true
+portable-pty.workspace = true
+
+[lints]
+workspace = true
