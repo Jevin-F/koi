@@ -9,7 +9,7 @@ use gpui_kit::*;
 use koi_core::settings::{Appearance, Settings};
 use koi_core::{AppPaths, store};
 
-use crate::{app_menu, i18n, shortcuts};
+use crate::{app_menu, i18n, native_appearance, shortcuts};
 
 struct AppSettings {
     settings: Settings,
@@ -64,6 +64,8 @@ pub fn code_font(cx: &App) -> CodeFont {
 fn apply(cx: &mut App) {
     let settings = get(cx).clone();
     i18n::set_language(settings.language);
+    // Before the theme, which reads the system appearance when following it.
+    native_appearance::apply(settings.appearance);
     match settings.appearance {
         Appearance::Dark => Theme::change(ThemeMode::Dark, None, cx),
         Appearance::Light => Theme::change(ThemeMode::Light, None, cx),

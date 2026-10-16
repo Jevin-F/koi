@@ -8,6 +8,7 @@ mod dock_badge;
 mod fs_watcher;
 mod i18n;
 mod main_window;
+mod native_appearance;
 mod picker;
 mod settings;
 mod settings_view;
