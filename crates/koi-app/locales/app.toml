@@ -309,10 +309,6 @@ zh-CN = "还没有 agent。在左侧列表中选择一个 worktree 启动。"
 en = "Working"
 zh-CN = "工作中"
 
-[status.working_inferred]
-en = "Probably working"
-zh-CN = "可能在工作"
-
 [status.waiting]
 en = "Needs you"
 zh-CN = "等待确认"
@@ -320,10 +316,6 @@ zh-CN = "等待确认"
 [status.idle]
 en = "Idle"
 zh-CN = "空闲"
-
-[status.idle_inferred]
-en = "Probably idle"
-zh-CN = "可能空闲"
 
 [status.finished]
 en = "Finished"

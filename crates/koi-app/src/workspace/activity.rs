@@ -1,7 +1,9 @@
-//! Agent activity: reading status files, inferring what Codex does, and
-//! notifying the user when a session they are not looking at needs them.
+//! Agent activity: reading status files and terminal reports, telling it
+//! from the output of agents that report none, and notifying the user when
+//! a session they are not looking at needs them.
 
 use std::io;
+use std::time::{Duration, Instant};
 
 use gpui_kit::*;
 use koi_core::integration::{Integration, PI_EXTENSION, SessionReport};
@@ -12,6 +14,11 @@ use rust_i18n::t;
 use super::WorkspaceView;
 use super::resume::apply_resume;
 use crate::fs_watcher::FsWatcher;
+
+/// How often agents that report no activity have their output checked.
+const OUTPUT_CHECK: Duration = Duration::from_secs(1);
+/// A prompt names the session only if the agent starts working this soon.
+const PROMPT_STARTS_WORK: Duration = Duration::from_secs(10);
 
 /// Installs the files integrations load, updating them if Koi changed, and
 /// starts watching the status files they write.
@@ -77,7 +84,7 @@ impl WorkspaceView {
             let contents = std::fs::read_to_string(&path).unwrap_or_default();
             match SessionReport::parse(&contents) {
                 Some(SessionReport::Activity(activity)) => {
-                    self.set_activity(id, activity, false, window, cx);
+                    self.set_activity(id, activity, window, cx);
                 }
                 Some(SessionReport::Shell(code)) => {
                     if !self.running.contains_key(&id) {
@@ -104,27 +111,23 @@ impl WorkspaceView {
         running.title = None;
         running.activity = None;
         running.integration = None;
-        running.guesses_from_title = false;
-        running.inferred = false;
+        running.watches_output = false;
+        running.prompt = None;
         self.set_unseen(id, false, cx);
         cx.notify();
     }
 
     /// Agent `agent` was started by hand in the shell of session `id`. It
     /// lacks Koi's integration arguments, so unless it reports its state in
-    /// the terminal, that state is guessed from the title.
+    /// the terminal, that state is told from its output.
     pub(super) fn enter_agent(&mut self, id: SessionId, agent: &str, cx: &mut Context<Self>) {
-        let guesses = self.agent(agent).is_some_and(|agent| {
-            Integration::for_agent(agent).is_none_or(Integration::reports_activity)
-        });
         let Some(running) = self.running.get_mut(&id) else {
             return;
         };
         running.shell = false;
         running.reentered = Some(agent.to_owned());
         running.activity = None;
-        running.inferred = true;
-        running.guesses_from_title = guesses;
+        running.watches_output = true;
         cx.notify();
     }
 
@@ -164,64 +167,62 @@ impl WorkspaceView {
             self.enter_agent(id, &agent, cx);
         }
         if let Some(running) = self.running.get_mut(&id) {
-            running.guesses_from_title = false;
+            running.watches_output = false;
         }
-        self.set_activity(id, activity, false, window, cx);
+        self.set_activity(id, activity, window, cx);
     }
 
-    /// Codex reports only finished turns; submitting a prompt is taken as
-    /// the start of one.
-    pub(super) fn on_submitted(
-        &mut self,
-        id: SessionId,
-        prompt: Option<&str>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(running) = self.running.get(&id) else {
+    /// Remembers a prompt the user submitted, to name the session once the
+    /// agent starts working on it: menu choices and confirmations start no
+    /// work, so they name nothing. Pi and Claude Code report their prompts.
+    pub(super) fn on_submitted(&mut self, id: SessionId, prompt: Option<&str>) {
+        let Some(running) = self.running.get_mut(&id) else {
             return;
         };
-        let (integration, activity, shell) = (running.integration, running.activity, running.shell);
-        // The agent now running, which may have been started by hand.
-        let is_agent = self
-            .workspace
-            .session(id)
-            .and_then(|record| self.agent(running.reentered.as_deref().unwrap_or(&record.agent)))
-            .is_some_and(|agent| !agent.command.is_empty());
-        if integration == Some(Integration::Codex) && activity != Some(Activity::Working) {
-            self.set_activity(id, Activity::Working, true, window, cx);
-        }
-        if is_agent
-            && !shell
-            && !matches!(integration, Some(Integration::Pi | Integration::Claude))
-            && (integration.is_none() || activity == Some(Activity::Idle))
-            && let Some(prompt) = prompt
-            && self.workspace.auto_name_session(id, prompt)
-        {
-            self.persist(window, cx);
-            cx.notify();
-        }
+        let reports_prompt = matches!(
+            running.integration,
+            Some(Integration::Pi | Integration::Claude)
+        );
+        running.prompt = prompt
+            .filter(|_| !running.shell && !reports_prompt)
+            .map(|prompt| (prompt.to_owned(), Instant::now()));
     }
 
-    /// For agents that do not report their activity, guesses it from the
-    /// terminal title.
-    pub(super) fn guess_activity(
-        &mut self,
-        id: SessionId,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(running) = self
+    /// Starts updating, every second, the activity of agents that report
+    /// none, from their terminal output.
+    pub(super) fn watch_output(window: &mut Window, cx: &mut Context<Self>) -> Task<()> {
+        cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor().timer(OUTPUT_CHECK).await;
+                if this
+                    .update_in(cx, |this, window, cx| this.check_output(window, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+    }
+
+    fn check_output(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let changed: Vec<(SessionId, Activity)> = self
             .running
-            .get(&id)
-            .filter(|running| running.guesses_from_title)
-        else {
-            return;
-        };
-        let title = running.title.as_deref().unwrap_or_default();
-        let guess = Activity::guess_from_title(title, running.activity);
-        if let Some(activity) = guess.filter(|&activity| Some(activity) != running.activity) {
-            self.set_activity(id, activity, true, window, cx);
+            .iter()
+            .filter(|(_, running)| running.watches_output && !running.shell)
+            .filter_map(|(&id, running)| {
+                let terminal = running.view.read(cx);
+                if terminal.exit_code().is_some() {
+                    return None;
+                }
+                let activity = match terminal.busy()? {
+                    true => Activity::Working,
+                    false => Activity::Idle,
+                };
+                (running.activity != Some(activity)).then_some((id, activity))
+            })
+            .collect();
+        for (id, activity) in changed {
+            self.set_activity(id, activity, window, cx);
         }
     }
 
@@ -229,7 +230,6 @@ impl WorkspaceView {
         &mut self,
         id: SessionId,
         activity: Activity,
-        inferred: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -241,9 +241,18 @@ impl WorkspaceView {
             return;
         }
         let previous = running.activity.replace(activity);
-        running.inferred = inferred;
+        // A prompt the agent started working on names the session.
+        let prompt = (activity == Activity::Working)
+            .then(|| running.prompt.take())
+            .flatten()
+            .filter(|(_, at)| at.elapsed() < PROMPT_STARTS_WORK);
         let unseen = unseen_after_change(running.unseen, previous, activity, watching);
         self.set_unseen(id, unseen, cx);
+        if let Some((prompt, _)) = prompt
+            && self.workspace.auto_name_session(id, &prompt)
+        {
+            self.persist(window, cx);
+        }
         cx.notify();
 
         let Some(attention) = Attention::of_change(previous, activity) else {

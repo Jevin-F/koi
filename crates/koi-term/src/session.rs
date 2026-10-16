@@ -7,6 +7,7 @@
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
+use std::time::Instant;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::Dimensions;
@@ -14,6 +15,7 @@ use alacritty_terminal::term::{Config, Term};
 use alacritty_terminal::vte::ansi::Processor;
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
+use crate::output_watch::OutputWatch;
 use crate::program_status::{ProgramStatus, Scanner};
 use crate::{Palette, Signal};
 
@@ -85,6 +87,7 @@ struct Shared {
     events: Mutex<Vec<SessionEvent>>,
     size: Mutex<GridSize>,
     palette: Mutex<Palette>,
+    watch: Mutex<OutputWatch>,
     signal: Signal,
 }
 
@@ -93,6 +96,10 @@ impl Shared {
         let mut writer = self.writer.lock().expect("pty writer lock poisoned");
         // The process may already have exited; its input is then discarded.
         let _ = writer.write_all(bytes).and_then(|()| writer.flush());
+    }
+
+    fn watch(&self) -> MutexGuard<'_, OutputWatch> {
+        self.watch.lock().expect("output watch lock poisoned")
     }
 
     fn push(&self, event: SessionEvent) {
@@ -177,6 +184,7 @@ impl Session {
             events: Mutex::default(),
             size: Mutex::new(size),
             palette: Mutex::new(palette),
+            watch: Mutex::new(OutputWatch::new(Instant::now())),
             signal: Signal::default(),
         });
         let config = Config {
@@ -226,6 +234,7 @@ impl Session {
 
     /// Sends input to the process.
     pub fn write(&self, bytes: &[u8]) {
+        self.shared.watch().input(Instant::now());
         self.shared.write(bytes);
     }
 
@@ -238,6 +247,8 @@ impl Session {
             }
             *current = size;
         }
+        // Programs redraw after a resize, which is not work.
+        self.shared.watch().input(Instant::now());
         self.term().resize(size);
         // Fails only once the process has exited, when the size no longer matters.
         let _ = self.master.resize(size.into());
@@ -246,6 +257,19 @@ impl Session {
     /// Raised whenever the screen changes or events are queued; closed after exit.
     pub fn signal(&self) -> Signal {
         self.shared.signal.clone()
+    }
+
+    /// Notes that the user submitted a line with enter, which may set the
+    /// program working.
+    pub fn submit(&self) {
+        self.shared.watch().submit(Instant::now());
+    }
+
+    /// Whether the program is working, told from its output: `Some(true)`
+    /// while output set off by a submitted line keeps coming, `Some(false)`
+    /// once it has been quiet for a while, `None` otherwise.
+    pub fn busy(&self) -> Option<bool> {
+        self.shared.watch().busy(Instant::now())
     }
 
     /// Removes and returns the queued events.
@@ -269,6 +293,7 @@ fn read_output(mut reader: Box<dyn Read + Send>, term: &Mutex<Terminal>, shared:
         match reader.read(&mut buffer) {
             Ok(0) => return,
             Ok(count) => {
+                shared.watch().output(Instant::now());
                 scanner.feed(&buffer[..count], |status| {
                     shared.push(SessionEvent::ProgramStatus(status));
                 });
@@ -382,6 +407,19 @@ mod tests {
             app: Some("pi".into()),
         })));
         assert_eq!(line_text(&session.term(), 0), "done");
+    }
+
+    #[test]
+    fn a_program_spinning_after_a_submitted_line_is_busy() {
+        let script =
+            "read line; i=0; while [ $i -lt 30 ]; do printf '.'; sleep 0.1; i=$((i+1)); done";
+        let session = Session::spawn(shell(script), SIZE, Palette::default()).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert_ne!(session.busy(), Some(true));
+        session.write(b"go\r");
+        session.submit();
+        std::thread::sleep(Duration::from_millis(1500));
+        assert_eq!(session.busy(), Some(true));
     }
 
     #[test]

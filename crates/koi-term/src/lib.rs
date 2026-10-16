@@ -7,6 +7,7 @@ mod keys;
 mod links;
 mod modifiers;
 mod mouse;
+mod output_watch;
 mod palette;
 mod paste;
 mod program_status;

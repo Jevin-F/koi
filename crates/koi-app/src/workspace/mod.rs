@@ -26,6 +26,7 @@ mod views;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::notification::Notification;
@@ -89,13 +90,12 @@ struct Running {
     /// Title set by the program, if any.
     title: Option<String>,
     integration: Option<Integration>,
-    /// Latest activity; `None` for agents that do not report it.
+    /// Latest activity; `None` until it is known.
     activity: Option<Activity>,
-    /// Whether `activity` was guessed rather than reported.
-    inferred: bool,
-    /// The agent's activity is neither reported nor asked for, so it is
-    /// guessed from the title.
-    guesses_from_title: bool,
+    /// The agent reports no activity, so it is told from the terminal output.
+    watches_output: bool,
+    /// The prompt last submitted and when, until the agent starts on it.
+    prompt: Option<(String, Instant)>,
     /// Finished a turn or asked something while the user was not looking.
     unseen: bool,
     _events: Subscription,
@@ -184,6 +184,7 @@ impl WorkspaceView {
                 Self::on_changes(watcher.signal(), Self::refresh_changed_trees, window, cx)
             }),
             Some(Self::poll_opencode(window, cx)),
+            Some(Self::watch_output(window, cx)),
         ];
 
         let mut this = Self {
@@ -283,8 +284,7 @@ impl WorkspaceView {
         let agent = self
             .agent(&record.agent)
             .ok_or_else(|| t!("error.unknown_agent", agent = record.agent).into_owned())?;
-        let kind = Integration::for_agent(agent);
-        let integration = kind
+        let integration = Integration::for_agent(agent)
             .filter(|integration| integration.reports_activity() && self.status_watcher.is_some());
         let extra: Vec<String> = record
             .resume
@@ -324,9 +324,9 @@ impl WorkspaceView {
         {
             command.env(EXECUTABLE_ENV, executable);
         }
-        let guesses_from_title = integration.is_none()
-            && !agent.command.is_empty()
-            && kind.is_none_or(Integration::reports_activity);
+        // Pi and Claude Code report their activity; Codex only finished turns.
+        let watches_output = !agent.command.is_empty()
+            && !matches!(integration, Some(Integration::Pi | Integration::Claude));
         let view = TerminalView::spawn(command, cx)
             .map_err(|error| t!("error.start", agent = agent.name, error = error).into_owned())?;
 
@@ -337,12 +337,9 @@ impl WorkspaceView {
                     if let Some(running) = this.running.get_mut(&id) {
                         running.title = title.clone();
                     }
-                    this.guess_activity(id, window, cx);
                     this.follow_titled_session(id, window, cx);
                 }
-                TerminalEvent::Submitted(prompt) => {
-                    this.on_submitted(id, prompt.as_deref(), window, cx)
-                }
+                TerminalEvent::Submitted(prompt) => this.on_submitted(id, prompt.as_deref()),
                 TerminalEvent::ProgramStatus(status) => {
                     this.on_program_status(id, status, window, cx)
                 }
@@ -361,8 +358,8 @@ impl WorkspaceView {
                 title: None,
                 integration,
                 activity: integration.map(|_| Activity::Idle),
-                inferred: false,
-                guesses_from_title,
+                watches_output,
+                prompt: None,
                 unseen: false,
                 _events: events,
             },
@@ -395,14 +392,10 @@ impl WorkspaceView {
             return Status::Shell;
         }
         match running.activity {
-            Some(Activity::Working) => Status::Working {
-                inferred: running.inferred,
-            },
+            Some(Activity::Working) => Status::Working,
             Some(Activity::Waiting) => Status::Waiting,
             Some(Activity::Idle) if running.unseen => Status::Finished,
-            Some(Activity::Idle) => Status::Idle {
-                inferred: running.inferred,
-            },
+            Some(Activity::Idle) => Status::Idle,
             None => Status::Running,
         }
     }

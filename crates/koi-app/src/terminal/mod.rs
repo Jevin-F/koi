@@ -122,6 +122,12 @@ impl TerminalView {
         self.exit_code
     }
 
+    /// Whether the program is working, told from its output; see
+    /// [`Session::busy`].
+    pub fn busy(&self) -> Option<bool> {
+        self.session.busy()
+    }
+
     /// Process id of the program in the terminal, if known.
     pub fn pid(&self) -> Option<u32> {
         self.session.pid()

@@ -45,12 +45,13 @@ impl WorkspaceView {
                 programs = known;
                 let updated = this.update_in(cx, |this, window, cx| {
                     for (session, activity) in found {
-                        let changed = this
-                            .running
-                            .get(&session)
-                            .is_some_and(|running| running.activity != Some(activity));
-                        if changed {
-                            this.set_activity(session, activity, false, window, cx);
+                        let Some(running) = this.running.get_mut(&session) else {
+                            continue;
+                        };
+                        // The service knows better than the output.
+                        running.watches_output = false;
+                        if running.activity != Some(activity) {
+                            this.set_activity(session, activity, window, cx);
                         }
                     }
                 });

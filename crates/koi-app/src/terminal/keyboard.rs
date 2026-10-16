@@ -36,6 +36,7 @@ impl TerminalView {
                 .then(|| submitted_line(&self.session.term()));
             self.send_input(&bytes, cx);
             if let Some(prompt) = submitted {
+                self.session.submit();
                 cx.emit(TerminalEvent::Submitted(prompt));
             }
             cx.stop_propagation();

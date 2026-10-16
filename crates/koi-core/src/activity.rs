@@ -1,5 +1,5 @@
-//! What an agent is doing, as reported through its status file or guessed
-//! from its terminal title.
+//! What an agent is doing, as it reports through its status file or its
+//! terminal, or as its terminal output shows.
 
 /// What an agent is doing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,28 +40,6 @@ impl Activity {
             _ => None,
         }
     }
-
-    /// Guesses the activity of an agent that does not report it, from its
-    /// terminal title: many command-line tools put a spinner at the start of
-    /// the title while they work. A title without one means idle only after
-    /// a spinner was seen; before that, the title says nothing.
-    pub fn guess_from_title(title: &str, previous: Option<Self>) -> Option<Self> {
-        let spinning = title.trim_start().chars().next().is_some_and(is_spinner);
-        match (spinning, previous) {
-            (true, _) => Some(Self::Working),
-            (false, Some(Self::Working)) => Some(Self::Idle),
-            (false, previous) => previous,
-        }
-    }
-}
-
-/// Characters used by common terminal spinners: braille dots and circle
-/// quarters.
-fn is_spinner(c: char) -> bool {
-    matches!(
-        c,
-        '\u{2801}'..='\u{28ff}' | '◐' | '◓' | '◑' | '◒' | '◴' | '◷' | '◶' | '◵'
-    )
 }
 
 /// Why a change of activity deserves the user's attention.
@@ -119,33 +97,6 @@ pub fn reentry_change<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn spinners_in_titles_mean_working() {
-        assert_eq!(
-            Activity::guess_from_title("⠋ Building", None),
-            Some(Activity::Working)
-        );
-        assert_eq!(
-            Activity::guess_from_title(" ◐ sync", None),
-            Some(Activity::Working)
-        );
-        assert_eq!(
-            Activity::guess_from_title("my-agent", Some(Activity::Working)),
-            Some(Activity::Idle)
-        );
-    }
-
-    #[test]
-    fn plain_titles_say_nothing_before_a_spinner() {
-        assert_eq!(Activity::guess_from_title("~/code/app", None), None);
-        assert_eq!(
-            Activity::guess_from_title("app", Some(Activity::Idle)),
-            Some(Activity::Idle)
-        );
-        // An empty braille cell is a blank, not a spinner frame.
-        assert_eq!(Activity::guess_from_title("\u{2800} x", None), None);
-    }
 
     #[test]
     fn attention_on_waiting_and_on_finishing() {
