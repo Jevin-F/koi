@@ -3,7 +3,7 @@
 //! a session they are not looking at needs them.
 
 use std::io;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use gpui_kit::*;
 use koi_core::integration::{Integration, PI_EXTENSION, SessionReport};
@@ -91,7 +91,7 @@ impl WorkspaceView {
                         continue;
                     }
                     // The agent may have said it stopped already, with OSC 7501.
-                    self.return_to_shell(id, cx);
+                    self.return_to_shell(id, window, cx);
                     if code != 0 {
                         self.notify_user(id, t!("notify.failed", code = code).into(), window, cx);
                     }
@@ -101,33 +101,54 @@ impl WorkspaceView {
         }
     }
 
-    /// The agent in session `id` stopped and its shell took over.
-    pub(super) fn return_to_shell(&mut self, id: SessionId, cx: &mut Context<Self>) {
+    /// The agent in session `id` stopped and its shell took over, which a
+    /// restart of Koi then reopens.
+    pub(super) fn return_to_shell(
+        &mut self,
+        id: SessionId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(running) = self.running.get_mut(&id) else {
             return;
         };
         running.shell = true;
         running.reentered = None;
+        running.entered = None;
         running.title = None;
         running.activity = None;
         running.integration = None;
         running.watches_output = false;
         running.prompt = None;
         self.set_unseen(id, false, cx);
+        if self.workspace.set_at_shell(id, true) {
+            self.persist(window, cx);
+        }
         cx.notify();
     }
 
-    /// Agent `agent` was started by hand in the shell of session `id`. It
-    /// lacks Koi's integration arguments, so unless it reports its state in
-    /// the terminal, that state is told from its output.
-    pub(super) fn enter_agent(&mut self, id: SessionId, agent: &str, cx: &mut Context<Self>) {
+    /// Agent `agent` was started by hand in the shell of session `id`, which
+    /// a restart of Koi then runs. It lacks Koi's integration arguments, so
+    /// unless it reports its state in the terminal, that state is told from
+    /// its output, and its conversation is looked up once it finishes a turn.
+    pub(super) fn enter_agent(
+        &mut self,
+        id: SessionId,
+        agent: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(running) = self.running.get_mut(&id) else {
             return;
         };
         running.shell = false;
         running.reentered = Some(agent.to_owned());
+        running.entered = Some(SystemTime::now());
         running.activity = None;
         running.watches_output = true;
+        if self.workspace.enter_agent(id, agent) {
+            self.persist(window, cx);
+        }
         cx.notify();
     }
 
@@ -146,7 +167,7 @@ impl WorkspaceView {
         let Some(activity) = Activity::from_program_state(&status.state) else {
             // `clear`: the program stopped, so the shell is back.
             if status.state == "clear" && !running.shell {
-                self.return_to_shell(id, cx);
+                self.return_to_shell(id, window, cx);
             }
             return;
         };
@@ -164,7 +185,7 @@ impl WorkspaceView {
             else {
                 return;
             };
-            self.enter_agent(id, &agent, cx);
+            self.enter_agent(id, &agent, window, cx);
         }
         if let Some(running) = self.running.get_mut(&id) {
             running.watches_output = false;
@@ -241,6 +262,10 @@ impl WorkspaceView {
             return;
         }
         let previous = running.activity.replace(activity);
+        // A finished turn of an agent started by hand has saved its conversation.
+        let turn_saved = running.entered.is_some()
+            && previous == Some(Activity::Working)
+            && activity != Activity::Working;
         // A prompt the agent started working on names the session.
         let prompt = (activity == Activity::Working)
             .then(|| running.prompt.take())
@@ -248,6 +273,9 @@ impl WorkspaceView {
             .filter(|(_, at)| at.elapsed() < PROMPT_STARTS_WORK);
         let unseen = unseen_after_change(running.unseen, previous, activity, watching);
         self.set_unseen(id, unseen, cx);
+        if turn_saved {
+            self.adopt_entered_conversation(id, window, cx);
+        }
         if let Some((prompt, _)) = prompt
             && self.workspace.auto_name_session(id, &prompt)
         {

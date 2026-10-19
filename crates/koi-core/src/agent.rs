@@ -39,7 +39,7 @@ impl Agent {
     /// `extra` arguments are appended to the agent's own; they are ignored
     /// for the plain shell.
     pub fn launch_command(&self, shell: &str, extra: &[String]) -> Vec<String> {
-        let mut command = vec![shell.to_owned(), "-l".to_owned()];
+        let mut command = shell_command(shell);
         if !self.command.is_empty() {
             let line = self
                 .command
@@ -131,6 +131,11 @@ pub(crate) fn builtin_agents() -> Vec<Agent> {
         Agent::new("pi", "Pi", &["pi"]),
         Agent::new("shell", "Shell", &[]),
     ]
+}
+
+/// Program and arguments of the user's interactive login `shell` alone.
+pub fn shell_command(shell: &str) -> Vec<String> {
+    vec![shell.to_owned(), "-l".to_owned()]
 }
 
 /// Quotes `word` for a POSIX shell.

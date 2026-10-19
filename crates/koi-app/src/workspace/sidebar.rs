@@ -1,6 +1,8 @@
 //! The session list: projects, their worktrees and the sessions in each.
+//! Projects, and sessions within a worktree, can be dragged into another
+//! order.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenu, PopupMenuItem};
@@ -8,9 +10,10 @@ use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, StyledExt, h_fle
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use koi_core::git::Worktree;
-use koi_core::{Agent, Project, SessionRecord};
+use koi_core::{Agent, Project, SessionId, SessionRecord};
 use rust_i18n::t;
 
+use super::drag::{self, Dragged};
 use super::{AddProject, WorkspaceView};
 
 /// Narrowest the menu for starting an agent gets.
@@ -26,6 +29,17 @@ fn hover_actions(shown: bool) -> Div {
             .invisible()
             .group_hover(ROW_GROUP, |style| style.visible())
     })
+}
+
+/// A project row being dragged onto another project.
+#[derive(Clone)]
+struct ProjectItem(PathBuf);
+
+/// A session row being dragged onto another session in the same directory.
+#[derive(Clone)]
+struct SessionItem {
+    id: SessionId,
+    dir: PathBuf,
 }
 
 /// One line of the list.
@@ -44,7 +58,12 @@ impl WorkspaceView {
     /// The list in display order.
     fn rows(&self) -> Vec<Row<'_>> {
         let mut rows = Vec::new();
-        for project in &self.workspace.projects {
+        for project in self
+            .workspace
+            .projects
+            .iter()
+            .filter(|project| !project.hidden)
+        {
             rows.push(Row::Project(project));
             let sessions = || {
                 self.workspace
@@ -97,6 +116,7 @@ impl WorkspaceView {
                 Row::Session(session) => self.render_session(ix, session, cx),
             })
             .collect();
+        let menu = self.render_sidebar_menu(cx);
         let theme = cx.theme();
         v_flex()
             .size_full()
@@ -117,15 +137,20 @@ impl WorkspaceView {
                             .child(t!("workspace.projects")),
                     )
                     .child(
-                        Button::new("sidebar-add-project")
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::Plus)
-                            .tooltip(t!("action.add_project"))
-                            .cursor_pointer()
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(AddProject), cx)
-                            }),
+                        h_flex()
+                            .gap_1()
+                            .child(
+                                Button::new("sidebar-add-project")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconName::Plus)
+                                    .tooltip(t!("action.add_project"))
+                                    .cursor_pointer()
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(AddProject), cx)
+                                    }),
+                            )
+                            .child(menu),
                     ),
             )
             .child(
@@ -141,14 +166,37 @@ impl WorkspaceView {
 
     fn render_project(&self, ix: usize, project: &Project, cx: &mut Context<Self>) -> AnyElement {
         let root = project.root.clone();
+        let hide = {
+            let root = root.clone();
+            cx.listener(move |this, _, window, cx| this.set_project_hidden(&root, true, window, cx))
+        };
         let new_worktree = {
             let root = root.clone();
             cx.listener(move |this, _, window, cx| {
                 this.open_new_worktree_dialog(root.clone(), window, cx)
             })
         };
+        let name: SharedString = project.name().into();
         h_flex()
+            .id(("project", ix))
             .group(ROW_GROUP)
+            .on_drag(
+                Dragged {
+                    item: ProjectItem(root.clone()),
+                    name: name.clone(),
+                },
+                drag::preview,
+            )
+            .drag_over::<Dragged<ProjectItem>>(|style, _, _, cx| style.bg(cx.theme().drop_target))
+            .on_drop({
+                let root = root.clone();
+                cx.listener(move |this, dragged: &Dragged<ProjectItem>, window, cx| {
+                    if this.workspace.move_project(&dragged.item.0, &root) {
+                        this.persist(window, cx);
+                        cx.notify();
+                    }
+                })
+            })
             .pl_3()
             .pr_2()
             .pt_3()
@@ -167,7 +215,7 @@ impl WorkspaceView {
                     .truncate()
                     .text_sm()
                     .font_semibold()
-                    .child(project.name()),
+                    .child(name),
             )
             .child(
                 hover_actions(false)
@@ -181,6 +229,15 @@ impl WorkspaceView {
                             .cursor_pointer()
                             .on_click(new_worktree)
                     }))
+                    .child(
+                        Button::new(("hide-project", ix))
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::EyeOff)
+                            .tooltip(t!("action.hide_project"))
+                            .cursor_pointer()
+                            .on_click(hide),
+                    )
                     .child(
                         Button::new(("remove-project", ix))
                             .ghost()
@@ -330,7 +387,7 @@ impl WorkspaceView {
                 .and_then(|running| running.title.clone())
                 .unwrap_or_else(|| self.place_name(session))
         };
-        let name = self.session_name(session);
+        let name: SharedString = self.session_name(session).into();
         let status = self.status(id, cx);
         let unseen = self.is_unseen(id);
         let active = self.workspace.active == Some(id);
@@ -359,6 +416,34 @@ impl WorkspaceView {
                 row.hover(|row| row.bg(theme.sidebar_accent.opacity(0.5)))
             })
             .on_click(cx.listener(move |this, _, window, cx| this.open(id, window, cx)))
+            .on_drag(
+                Dragged {
+                    item: SessionItem {
+                        id,
+                        dir: session.dir.clone(),
+                    },
+                    name: name.clone(),
+                },
+                drag::preview,
+            )
+            .drag_over::<Dragged<SessionItem>>({
+                let dir = session.dir.clone();
+                move |style, dragged, _, cx| {
+                    if dragged.item.dir == dir {
+                        style.bg(cx.theme().drop_target)
+                    } else {
+                        style
+                    }
+                }
+            })
+            .on_drop(
+                cx.listener(move |this, dragged: &Dragged<SessionItem>, window, cx| {
+                    if this.workspace.move_session(dragged.item.id, id) {
+                        this.persist(window, cx);
+                        cx.notify();
+                    }
+                }),
+            )
             .child(
                 h_flex()
                     .gap_2()

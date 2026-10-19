@@ -67,12 +67,13 @@ impl WorkspaceView {
                     .and_then(|changes| changes.as_ref().ok())
                     .cloned()
                     .unwrap_or_default();
+                let layout = self.changes_layout.clone();
                 let view = self
                     .changes_views
                     .entry(record.dir.clone())
                     .or_insert_with(|| {
                         cx.new(|cx| {
-                            ChangesView::new(record.dir.clone(), branch.clone(), window, cx)
+                            ChangesView::new(record.dir.clone(), branch.clone(), layout, window, cx)
                         })
                     })
                     .clone();
@@ -97,9 +98,10 @@ impl WorkspaceView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<FilesView> {
+        let layout = self.files_layout.clone();
         self.files_views
             .entry(dir.to_owned())
-            .or_insert_with(|| cx.new(|cx| FilesView::new(dir.to_owned(), window, cx)))
+            .or_insert_with(|| cx.new(|cx| FilesView::new(dir.to_owned(), layout, window, cx)))
             .clone()
     }
 

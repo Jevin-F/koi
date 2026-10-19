@@ -1,5 +1,6 @@
-//! The overview: one card per session with its state, place, resource usage and
-//! latest reply or output. Clicking a card opens the session.
+//! The overview: one card per session of a shown project with its state,
+//! place, resource usage and latest reply or output. Clicking a card opens
+//! the session.
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, StyledExt, h_flex, v_flex};
@@ -15,7 +16,7 @@ const CARD_WIDTH: Pixels = px(360.);
 
 impl WorkspaceView {
     pub(super) fn render_overview(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        if self.workspace.sessions.is_empty() {
+        if self.workspace.shown_sessions().next().is_none() {
             return v_flex()
                 .size_full()
                 .items_center()
@@ -28,8 +29,7 @@ impl WorkspaceView {
         }
         let cards: Vec<AnyElement> = self
             .workspace
-            .sessions
-            .iter()
+            .shown_sessions()
             .enumerate()
             .map(|(ix, record)| self.render_card(ix, record, cx))
             .collect();

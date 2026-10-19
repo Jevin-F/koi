@@ -1,11 +1,17 @@
-//! Short task labels derived from submitted user messages.
+//! Task labels: names the user gives sessions, or derived from the messages
+//! they submit. Labels are kept whole up to [`MAX_CHARS`]; the interface
+//! cuts them to the space it has.
 
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+/// Characters a label keeps.
+pub const MAX_CHARS: usize = 100;
 
-/// Display columns a label may take; wide characters such as CJK count twice.
-const MAX_WIDTH: usize = 28;
+/// `text` cut to at most [`MAX_CHARS`] characters, without trailing spaces.
+pub fn bounded(text: &str) -> String {
+    let label: String = text.chars().take(MAX_CHARS).collect();
+    label.trim_end().to_owned()
+}
 
-/// First meaningful line of a message, shortened for tabs and the sidebar.
+/// First meaningful line of a message.
 pub fn from_message(message: &str) -> Option<String> {
     message.lines().find_map(|line| {
         let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -22,7 +28,7 @@ pub fn from_message(message: &str) -> Option<String> {
         {
             return None;
         }
-        Some(shorten(line))
+        Some(bounded(line))
     })
 }
 
@@ -30,23 +36,6 @@ pub fn from_message(message: &str) -> Option<String> {
 fn is_menu_choice(line: &str) -> bool {
     let rest = line.trim_start_matches(|c: char| c.is_ascii_digit());
     rest.len() < line.len() && rest.starts_with(['.', ')']) && rest[1..].starts_with(' ')
-}
-
-/// Cuts `line` to at most `MAX_WIDTH` columns, ending with `…` when cut.
-fn shorten(line: &str) -> String {
-    if line.width() <= MAX_WIDTH {
-        return line.to_owned();
-    }
-    let mut width = 0;
-    // Strictly below the limit, leaving one column for the ellipsis.
-    let label: String = line
-        .chars()
-        .take_while(|c| {
-            width += c.width().unwrap_or(0);
-            width < MAX_WIDTH
-        })
-        .collect();
-    format!("{}…", label.trim_end())
 }
 
 #[cfg(test)]
@@ -88,23 +77,16 @@ mod tests {
     }
 
     #[test]
-    fn long_names_are_bounded_by_display_width() {
-        let label = from_message(&"修".repeat(60)).unwrap();
-        assert_eq!(label, format!("{}…", "修".repeat(13)));
-        let label = from_message(&"a".repeat(60)).unwrap();
-        assert_eq!(label, format!("{}…", "a".repeat(MAX_WIDTH - 1)));
-        assert!(label.width() <= MAX_WIDTH);
-    }
-
-    #[test]
-    fn names_that_fit_are_kept_whole() {
-        let exact = "a".repeat(MAX_WIDTH);
-        assert_eq!(from_message(&exact), Some(exact));
+    fn long_names_are_kept_whole_up_to_the_limit() {
+        let long = "修".repeat(MAX_CHARS + 20);
+        assert_eq!(from_message(&long), Some("修".repeat(MAX_CHARS)));
+        let sentence = "Investigate why the release build fails on the signing step";
+        assert_eq!(from_message(sentence).as_deref(), Some(sentence));
     }
 
     #[test]
     fn cut_names_do_not_end_in_a_space() {
-        let label = from_message(&format!("{} tail of the message", "a".repeat(26))).unwrap();
-        assert_eq!(label, format!("{}…", "a".repeat(26)));
+        let text = format!("{} tail", "a".repeat(MAX_CHARS - 1));
+        assert_eq!(bounded(&text), "a".repeat(MAX_CHARS - 1));
     }
 }

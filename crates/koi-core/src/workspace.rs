@@ -32,6 +32,9 @@ impl FromStr for SessionId {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Project {
     pub root: PathBuf,
+    /// Left out of the sidebar; its sessions keep running.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 impl Project {
@@ -66,6 +69,10 @@ pub struct SessionRecord {
     /// Arguments that resume an earlier conversation; empty for a new one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resume: Vec<String>,
+    /// The agent had exited and the shell had taken over; a restart opens
+    /// the shell instead of the agent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub at_shell: bool,
 }
 
 /// Where a split shows its session, relative to the active tab.
@@ -93,6 +100,9 @@ pub struct Workspace {
     pub sessions: Vec<SessionRecord>,
     /// Sessions opened as tabs, in tab order.
     pub tabs: Vec<SessionId>,
+    /// The same tabs from most to least recently shown; closing the active
+    /// tab shows the first one left.
+    recent: Vec<SessionId>,
     /// The tab on screen; `None` shows the overview.
     pub active: Option<SessionId>,
     /// Never the active session, which is shown once only.
@@ -100,13 +110,53 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    /// Adds a project; returns `false` if it is already present.
+    /// Adds a project, or shows it again if it is hidden; returns `false`
+    /// if it is already shown.
     pub fn add_project(&mut self, root: PathBuf) -> bool {
         if self.projects.iter().any(|project| project.root == root) {
-            return false;
+            return self.set_project_hidden(&root, false);
         }
-        self.projects.push(Project { root });
+        self.projects.push(Project {
+            root,
+            hidden: false,
+        });
         true
+    }
+
+    /// Hides a project from the sidebar or shows it again; returns whether
+    /// anything changed.
+    pub fn set_project_hidden(&mut self, root: &Path, hidden: bool) -> bool {
+        match self
+            .projects
+            .iter_mut()
+            .find(|project| project.root == root)
+        {
+            Some(project) if project.hidden != hidden => {
+                project.hidden = hidden;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sessions of projects that are not hidden, in creation order.
+    pub fn shown_sessions(&self) -> impl Iterator<Item = &SessionRecord> {
+        self.sessions.iter().filter(|session| {
+            !self
+                .projects
+                .iter()
+                .any(|project| project.hidden && project.root == session.project)
+        })
+    }
+
+    /// Shows every hidden project; returns whether any was hidden.
+    pub fn show_all_projects(&mut self) -> bool {
+        let mut changed = false;
+        for project in self.projects.iter_mut().filter(|project| project.hidden) {
+            project.hidden = false;
+            changed = true;
+        }
+        changed
     }
 
     /// Removes a project and its sessions, returning the removed sessions.
@@ -133,6 +183,7 @@ impl Workspace {
             dir,
             agent: agent.to_owned(),
             resume,
+            at_shell: false,
         });
         self.open(id);
         id
@@ -156,7 +207,7 @@ impl Workspace {
         let Some(session) = self.sessions.iter_mut().find(|session| session.id == id) else {
             return false;
         };
-        let name = name.trim().chars().take(80).collect::<String>();
+        let name = session_label::bounded(name.trim());
         session.label = (!name.is_empty()).then_some(name);
         session.named_by_user = true;
         true
@@ -191,6 +242,49 @@ impl Workspace {
         true
     }
 
+    /// The user started `agent` by hand in the session's shell; a restart
+    /// runs it, resuming the session's conversation only if that was the
+    /// same agent's. Returns whether anything changed.
+    pub fn enter_agent(&mut self, id: SessionId, agent: &str) -> bool {
+        let Some(session) = self.session(id) else {
+            return false;
+        };
+        let resume = if session.agent == agent {
+            session.resume.clone()
+        } else {
+            Vec::new()
+        };
+        self.adopt_conversation(id, agent, resume)
+    }
+
+    /// Makes `agent`, resuming the conversation `resume`, the program the
+    /// session restarts with, as when the user started that agent by hand in
+    /// the session's shell. Returns whether anything changed.
+    pub fn adopt_conversation(&mut self, id: SessionId, agent: &str, resume: Vec<String>) -> bool {
+        let Some(session) = self.sessions.iter_mut().find(|session| session.id == id) else {
+            return false;
+        };
+        if session.agent == agent && session.resume == resume && !session.at_shell {
+            return false;
+        }
+        session.agent = agent.to_owned();
+        session.resume = resume;
+        session.at_shell = false;
+        true
+    }
+
+    /// Records whether the session's agent has exited to the shell, which a
+    /// restart then reopens. Returns whether it changed.
+    pub fn set_at_shell(&mut self, id: SessionId, at_shell: bool) -> bool {
+        match self.sessions.iter_mut().find(|session| session.id == id) {
+            Some(session) if session.at_shell != at_shell => {
+                session.at_shell = at_shell;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Drops tabs of sessions that no longer exist and makes sure the active
     /// session has a tab, as saved state may come from an older version.
     pub fn repair(&mut self) {
@@ -200,6 +294,16 @@ impl Workspace {
             Some(id) if !sessions.contains(&id) => self.active = self.tabs.first().copied(),
             Some(id) if !self.tabs.contains(&id) => self.tabs.push(id),
             _ => {}
+        }
+        // Older state has no recency; unknown tabs count as least recent.
+        self.recent.retain(|tab| self.tabs.contains(tab));
+        for &tab in &self.tabs {
+            if !self.recent.contains(&tab) {
+                self.recent.push(tab);
+            }
+        }
+        if let Some(id) = self.active {
+            self.mark_recent(id);
         }
         let stale =
             |split: Split| !sessions.contains(&split.session) || Some(split.session) == self.active;
@@ -213,10 +317,50 @@ impl Workspace {
         if !self.tabs.contains(&id) {
             self.tabs.push(id);
         }
+        self.mark_recent(id);
         self.active = Some(id);
         if self.split.is_some_and(|split| split.session == id) {
             self.split = None;
         }
+    }
+
+    fn mark_recent(&mut self, id: SessionId) {
+        self.recent.retain(|&tab| tab != id);
+        self.recent.insert(0, id);
+    }
+
+    /// Moves tab `id` to position `to`, or last if `to` is past the end.
+    /// Returns whether the order changed.
+    pub fn move_tab(&mut self, id: SessionId, to: usize) -> bool {
+        let from = self.tabs.iter().position(|&tab| tab == id);
+        move_to(&mut self.tabs, from, Some(to))
+    }
+
+    /// Moves project `root` to where project `onto` is. Returns whether the
+    /// order changed.
+    pub fn move_project(&mut self, root: &Path, onto: &Path) -> bool {
+        let at = |root: &Path| {
+            self.projects
+                .iter()
+                .position(|project| project.root == root)
+        };
+        let (from, to) = (at(root), at(onto));
+        move_to(&mut self.projects, from, to)
+    }
+
+    /// Moves session `id` to where session `onto` is, if both work in the
+    /// same directory, which the sidebar lists together. Returns whether
+    /// the order changed.
+    pub fn move_session(&mut self, id: SessionId, onto: SessionId) -> bool {
+        let (Some(moved), Some(target)) = (self.session(id), self.session(onto)) else {
+            return false;
+        };
+        if moved.dir != target.dir {
+            return false;
+        }
+        let at = |id: SessionId| self.sessions.iter().position(|session| session.id == id);
+        let (from, to) = (at(id), at(onto));
+        move_to(&mut self.sessions, from, to)
     }
 
     /// Shows `id` beside the active tab. Returns `false`, changing nothing,
@@ -263,23 +407,30 @@ impl Workspace {
         removed
     }
 
-    /// Removes matching tabs. If the active one goes, the tab after it
-    /// becomes active, or else the one before, or else the overview.
+    /// Removes matching tabs. If the active one goes, the most recently
+    /// shown tab left becomes active, or else the overview.
     fn drop_tabs(&mut self, gone: impl Fn(SessionId) -> bool) {
-        if let Some(index) = self
-            .active
-            .and_then(|id| self.tabs.iter().position(|&tab| tab == id))
-            && gone(self.tabs[index])
-        {
-            let (before, after) = self.tabs.split_at(index);
-            self.active = after
-                .iter()
-                .chain(before.iter().rev())
-                .copied()
-                .find(|&tab| !gone(tab));
-        }
         self.tabs.retain(|&tab| !gone(tab));
+        self.recent.retain(|&tab| !gone(tab));
+        if self.active.is_some_and(&gone) {
+            self.active = self.recent.first().copied();
+        }
     }
+}
+
+/// Moves the item at `from` to position `to`, or last if `to` is past the
+/// end. Returns whether the order changed.
+fn move_to<T>(items: &mut Vec<T>, from: Option<usize>, to: Option<usize>) -> bool {
+    let (Some(from), Some(to)) = (from, to) else {
+        return false;
+    };
+    let to = to.min(items.len() - 1);
+    if from == to {
+        return false;
+    }
+    let item = items.remove(from);
+    items.insert(to, item);
+    true
 }
 
 /// The session `steps` places away from `current` in `order`, wrapping
@@ -325,6 +476,81 @@ mod tests {
     }
 
     #[test]
+    fn hiding_a_project_keeps_its_sessions() {
+        let (mut workspace, ids) = workspace_with_sessions(2);
+        let root = Path::new("/repo");
+        assert!(workspace.set_project_hidden(root, true));
+        assert!(!workspace.set_project_hidden(root, true));
+        assert!(!workspace.set_project_hidden(Path::new("/missing"), true));
+        assert!(workspace.projects[0].hidden);
+        assert_eq!(workspace.tabs, ids);
+        assert_eq!(workspace.sessions.len(), 2);
+
+        let restored: Workspace =
+            serde_json::from_str(&serde_json::to_string(&workspace).unwrap()).unwrap();
+        assert!(restored.projects[0].hidden);
+
+        assert!(workspace.set_project_hidden(root, false));
+        assert!(!workspace.projects[0].hidden);
+    }
+
+    #[test]
+    fn sessions_of_hidden_projects_are_not_shown() {
+        let mut workspace = Workspace::default();
+        workspace.add_project("/a".into());
+        workspace.add_project("/b".into());
+        let a = workspace.add_session(Path::new("/a"), "/a".into(), "pi", Vec::new());
+        let b = workspace.add_session(Path::new("/b"), "/b".into(), "pi", Vec::new());
+        let shown = |workspace: &Workspace| -> Vec<SessionId> {
+            workspace
+                .shown_sessions()
+                .map(|session| session.id)
+                .collect()
+        };
+        assert_eq!(shown(&workspace), [a, b]);
+        workspace.set_project_hidden(Path::new("/a"), true);
+        assert_eq!(shown(&workspace), [b]);
+        assert_eq!(workspace.sessions.len(), 2, "hidden sessions keep running");
+    }
+
+    #[test]
+    fn showing_all_projects_reveals_every_hidden_one() {
+        let mut workspace = Workspace::default();
+        for root in ["/a", "/b", "/c"] {
+            workspace.add_project(root.into());
+        }
+        assert!(!workspace.show_all_projects());
+        workspace.set_project_hidden(Path::new("/a"), true);
+        workspace.set_project_hidden(Path::new("/c"), true);
+        assert!(workspace.show_all_projects());
+        assert!(workspace.projects.iter().all(|project| !project.hidden));
+    }
+
+    #[test]
+    fn adding_a_hidden_project_shows_it_again() {
+        let mut workspace = Workspace::default();
+        workspace.add_project("/repo".into());
+        workspace.set_project_hidden(Path::new("/repo"), true);
+        assert!(workspace.add_project("/repo".into()));
+        assert_eq!(workspace.projects.len(), 1);
+        assert!(!workspace.projects[0].hidden);
+        assert!(!workspace.add_project("/repo".into()));
+    }
+
+    #[test]
+    fn projects_saved_before_hiding_existed_are_shown() {
+        let workspace: Workspace =
+            serde_json::from_str(r#"{"projects":[{"root":"/repo"}]}"#).unwrap();
+        assert!(!workspace.projects[0].hidden);
+        assert!(
+            !serde_json::to_string(&workspace)
+                .unwrap()
+                .contains("hidden"),
+            "shown projects save as before"
+        );
+    }
+
+    #[test]
     fn new_sessions_get_fresh_ids_and_open_as_tabs() {
         let (workspace, ids) = workspace_with_sessions(3);
         assert_eq!(ids, [SessionId(1), SessionId(2), SessionId(3)]);
@@ -343,18 +569,21 @@ mod tests {
     }
 
     #[test]
-    fn closing_the_active_tab_activates_a_neighbour() {
-        let (mut workspace, ids) = workspace_with_sessions(3);
-        workspace.active = Some(ids[1]);
-        workspace.close_tab(ids[1]);
-        assert_eq!(workspace.active, Some(ids[2]));
+    fn closing_the_active_tab_shows_the_one_shown_before() {
+        let (mut workspace, ids) = workspace_with_sessions(4);
+        workspace.open(ids[0]);
+        workspace.open(ids[2]);
         workspace.close_tab(ids[2]);
-        assert_eq!(workspace.active, Some(ids[0]));
+        assert_eq!(workspace.active, Some(ids[0]), "not the neighbour");
         workspace.close_tab(ids[0]);
+        assert_eq!(workspace.active, Some(ids[3]));
+        workspace.close_tab(ids[3]);
+        assert_eq!(workspace.active, Some(ids[1]));
+        workspace.close_tab(ids[1]);
         assert_eq!(workspace.active, None);
         assert_eq!(
             workspace.sessions.len(),
-            3,
+            4,
             "closing a tab keeps the session"
         );
     }
@@ -370,8 +599,10 @@ mod tests {
     #[test]
     fn removing_a_worktree_or_project_removes_its_sessions_and_tabs() {
         let (mut workspace, ids) = workspace_with_sessions(3);
+        workspace.open(ids[0]);
+        workspace.open(ids[2]);
         assert_eq!(workspace.remove_sessions_in(Path::new("/tree2")), [ids[2]]);
-        assert_eq!(workspace.active, Some(ids[1]));
+        assert_eq!(workspace.active, Some(ids[0]));
         assert_eq!(
             workspace.remove_project(Path::new("/repo")),
             [ids[0], ids[1]]
@@ -379,6 +610,150 @@ mod tests {
         assert!(workspace.projects.is_empty());
         assert!(workspace.tabs.is_empty());
         assert_eq!(workspace.active, None);
+    }
+
+    #[test]
+    fn an_agent_started_by_hand_reopens_after_restart() {
+        let (mut workspace, ids) = workspace_with_sessions(1);
+        let resume = vec!["resume".to_owned(), "abc".to_owned()];
+        assert!(workspace.adopt_conversation(ids[0], "codex", resume.clone()));
+        assert!(!workspace.adopt_conversation(ids[0], "codex", resume.clone()));
+        assert!(!workspace.adopt_conversation(SessionId(99), "codex", resume.clone()));
+        let restored: Workspace =
+            serde_json::from_str(&serde_json::to_string(&workspace).unwrap()).unwrap();
+        let session = restored.session(ids[0]).unwrap();
+        assert_eq!(session.agent, "codex");
+        assert_eq!(session.resume, resume);
+    }
+
+    #[test]
+    fn entering_an_agent_by_hand_is_kept_before_any_conversation() {
+        let (mut workspace, ids) = workspace_with_sessions(1);
+        let resume = vec!["--session".to_owned(), "/pi.jsonl".to_owned()];
+        workspace.adopt_conversation(ids[0], "pi", resume.clone());
+        workspace.set_at_shell(ids[0], true);
+
+        assert!(workspace.enter_agent(ids[0], "pi"));
+        let session = workspace.session(ids[0]).unwrap();
+        assert!(!session.at_shell);
+        assert_eq!(
+            session.resume, resume,
+            "the same agent keeps its conversation"
+        );
+        assert!(!workspace.enter_agent(ids[0], "pi"));
+
+        assert!(workspace.enter_agent(ids[0], "codex"));
+        let session = workspace.session(ids[0]).unwrap();
+        assert_eq!(session.agent, "codex");
+        assert!(session.resume.is_empty(), "another agent starts afresh");
+        assert!(!workspace.enter_agent(SessionId(99), "codex"));
+    }
+
+    #[test]
+    fn returning_to_the_shell_survives_restarts() {
+        let (mut workspace, ids) = workspace_with_sessions(1);
+        assert!(workspace.set_at_shell(ids[0], true));
+        assert!(!workspace.set_at_shell(ids[0], true));
+        assert!(!workspace.set_at_shell(SessionId(99), true));
+        let mut restored: Workspace =
+            serde_json::from_str(&serde_json::to_string(&workspace).unwrap()).unwrap();
+        assert!(restored.session(ids[0]).unwrap().at_shell);
+
+        let resume = restored.session(ids[0]).unwrap().resume.clone();
+        assert!(
+            restored.adopt_conversation(ids[0], "pi", resume),
+            "entering the same conversation again leaves the shell"
+        );
+        assert!(!restored.session(ids[0]).unwrap().at_shell);
+    }
+
+    #[test]
+    fn recency_survives_restarts_and_moving_tabs() {
+        let (mut workspace, ids) = workspace_with_sessions(3);
+        workspace.open(ids[0]);
+        workspace.open(ids[1]);
+        assert!(workspace.move_tab(ids[1], 0));
+        assert_eq!(workspace.tabs, [ids[1], ids[0], ids[2]]);
+        let mut restored: Workspace =
+            serde_json::from_str(&serde_json::to_string(&workspace).unwrap()).unwrap();
+        restored.repair();
+        restored.close_tab(ids[1]);
+        assert_eq!(restored.active, Some(ids[0]));
+    }
+
+    #[test]
+    fn tabs_move_to_the_position_they_are_dropped_on() {
+        let (mut workspace, ids) = workspace_with_sessions(3);
+        assert!(workspace.move_tab(ids[0], 2));
+        assert_eq!(workspace.tabs, [ids[1], ids[2], ids[0]]);
+        assert!(workspace.move_tab(ids[0], 0));
+        assert_eq!(workspace.tabs, [ids[0], ids[1], ids[2]]);
+        assert!(workspace.move_tab(ids[0], 99), "past the end moves last");
+        assert_eq!(workspace.tabs, [ids[1], ids[2], ids[0]]);
+        assert!(!workspace.move_tab(ids[0], 2));
+        assert!(!workspace.move_tab(SessionId(99), 0));
+        assert_eq!(
+            workspace.active,
+            Some(ids[2]),
+            "moving does not switch tabs"
+        );
+    }
+
+    #[test]
+    fn projects_move_to_the_project_they_are_dropped_on() {
+        let mut workspace = Workspace::default();
+        for root in ["/a", "/b", "/c"] {
+            workspace.add_project(root.into());
+        }
+        let order = |workspace: &Workspace| -> Vec<PathBuf> {
+            workspace
+                .projects
+                .iter()
+                .map(|project| project.root.clone())
+                .collect()
+        };
+        assert!(workspace.move_project(Path::new("/a"), Path::new("/c")));
+        assert_eq!(order(&workspace), ["/b", "/c", "/a"].map(PathBuf::from));
+        assert!(workspace.move_project(Path::new("/a"), Path::new("/b")));
+        assert_eq!(order(&workspace), ["/a", "/b", "/c"].map(PathBuf::from));
+        assert!(!workspace.move_project(Path::new("/a"), Path::new("/a")));
+        assert!(!workspace.move_project(Path::new("/missing"), Path::new("/a")));
+        assert!(!workspace.move_project(Path::new("/a"), Path::new("/missing")));
+    }
+
+    #[test]
+    fn sessions_move_only_among_those_in_the_same_directory() {
+        let mut workspace = Workspace::default();
+        workspace.add_project("/repo".into());
+        let add = |workspace: &mut Workspace, dir: &str| {
+            workspace.add_session(Path::new("/repo"), dir.into(), "pi", Vec::new())
+        };
+        let a = add(&mut workspace, "/repo");
+        let b = add(&mut workspace, "/repo");
+        let other = add(&mut workspace, "/tree");
+        let order = |workspace: &Workspace| -> Vec<SessionId> {
+            workspace
+                .sessions
+                .iter()
+                .map(|session| session.id)
+                .collect()
+        };
+        assert!(workspace.move_session(b, a));
+        assert_eq!(order(&workspace), [b, a, other]);
+        assert!(!workspace.move_session(other, a), "another worktree");
+        assert!(!workspace.move_session(a, SessionId(99)));
+        assert_eq!(order(&workspace), [b, a, other]);
+    }
+
+    #[test]
+    fn state_without_recency_closes_to_the_earliest_tab() {
+        let (workspace, ids) = workspace_with_sessions(3);
+        let mut json = serde_json::to_value(&workspace).unwrap();
+        json.as_object_mut().unwrap().remove("recent");
+        let mut restored: Workspace = serde_json::from_value(json).unwrap();
+        restored.repair();
+        restored.close_tab(ids[2]);
+        assert_eq!(restored.active, Some(ids[0]));
     }
 
     #[test]

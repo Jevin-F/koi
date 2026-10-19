@@ -3,6 +3,7 @@
 //! `~/.codex/session_index.jsonl`.
 
 use std::collections::HashMap;
+use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -27,6 +28,16 @@ pub(super) fn sessions(home: &Path, cwd: &Path) -> Vec<PastSession> {
             })
         })
         .collect()
+}
+
+/// Whether another Codex process holds conversation `id` open for writing,
+/// with a lock in `~/.codex/thread-writer-locks`. Codex's shared background
+/// server keeps the conversations started through it open after their
+/// terminal exits.
+pub(super) fn thread_held(home: &Path, id: &str) -> bool {
+    let lock = home.join(format!(".codex/thread-writer-locks/{id}.lock"));
+    File::open(lock)
+        .is_ok_and(|file| matches!(file.try_lock_shared(), Err(TryLockError::WouldBlock)))
 }
 
 /// Session titles by id; later lines rename earlier ones.
@@ -96,6 +107,20 @@ mod tests {
         let context = serde_json::json!({"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "<environment_context>…"}]}});
         let user = serde_json::json!({"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": prompt}]}});
         std::fs::write(dir.join(name), format!("{meta}\n{context}\n{user}\n")).unwrap();
+    }
+
+    #[test]
+    fn tells_conversations_held_by_another_process() {
+        let home = TempDir::new();
+        assert!(!thread_held(home.path(), "a"), "no lock file");
+        let dir = home.path().join(".codex/thread-writer-locks");
+        std::fs::create_dir_all(&dir).unwrap();
+        let writer = File::create(dir.join("a.lock")).unwrap();
+        assert!(!thread_held(home.path(), "a"), "released");
+        writer.lock().unwrap();
+        assert!(thread_held(home.path(), "a"));
+        writer.unlock().unwrap();
+        assert!(!thread_held(home.path(), "a"));
     }
 
     #[test]

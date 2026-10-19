@@ -7,6 +7,7 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
+use gpui_kit::component::resizable::ResizableState;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, WindowExt, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -14,8 +15,10 @@ use koi_core::git::{self, ChangeKind, DiffLine, FileChange, LineKind, Tracking};
 use rust_i18n::t;
 
 use super::file_icon::file_icon;
+use super::layout::side_list;
 use crate::settings::code_font;
 
+/// Starting width of the file list, which can be dragged wider or narrower.
 const FILE_LIST_WIDTH: Pixels = px(280.);
 const DIFF_LINE_HEIGHT: Pixels = px(20.);
 const LINE_NUMBER_WIDTH: Pixels = px(44.);
@@ -38,11 +41,19 @@ pub struct ChangesView {
     tracking: Option<Tracking>,
     busy: Option<Busy>,
     message: Entity<InputState>,
+    /// Width of the file list, shared by the changes panels of all worktrees.
+    layout: Entity<ResizableState>,
     _message_events: Subscription,
 }
 
 impl ChangesView {
-    pub fn new(dir: PathBuf, branch: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        dir: PathBuf,
+        branch: String,
+        layout: Entity<ResizableState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let message = cx.new(|cx| InputState::new(window, cx).placeholder(t!("changes.message")));
         let message_events = cx.subscribe_in(&message, window, |this, _, event, window, cx| {
             if let InputEvent::PressEnter { .. } = event {
@@ -58,6 +69,7 @@ impl ChangesView {
             tracking: None,
             busy: None,
             message,
+            layout,
             _message_events: message_events,
         };
         this.refresh_tracking(cx);
@@ -281,11 +293,7 @@ impl ChangesView {
         });
         let commit_label = t!("changes.commit_count", count = self.files.len());
         v_flex()
-            .w(FILE_LIST_WIDTH)
-            .flex_none()
-            .h_full()
-            .border_r_1()
-            .border_color(theme.border)
+            .size_full()
             .child(
                 v_flex()
                     .id("changed-files")
@@ -396,18 +404,18 @@ fn render_diff_line(line: &DiffLine, cx: &App) -> AnyElement {
 
 impl Render for ChangesView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex().size_full().child(self.render_header(cx)).child(
-            h_flex()
-                .flex_1()
-                .min_h_0()
-                .child(self.render_files(cx))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .h_full()
-                        .child(self.render_diff(cx)),
-                ),
-        )
+        let header = self.render_header(cx).into_any_element();
+        let files = self.render_files(cx).into_any_element();
+        let diff = self.render_diff(cx);
+        v_flex()
+            .size_full()
+            .child(header)
+            .child(div().flex_1().min_h_0().child(side_list(
+                "changes-split",
+                &self.layout,
+                FILE_LIST_WIDTH,
+                files,
+                diff,
+            )))
     }
 }

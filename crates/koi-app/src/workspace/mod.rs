@@ -7,8 +7,10 @@ mod changes;
 mod changes_view;
 mod detached;
 mod dialogs;
+mod drag;
 mod file_icon;
 mod files_view;
+mod hidden_projects;
 mod history;
 mod layout;
 mod opencode;
@@ -27,20 +29,22 @@ mod views;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::notification::Notification;
+use gpui_kit::component::resizable::ResizableState;
 use gpui_kit::component::{ActiveTheme, Icon, WindowExt, v_flex};
 use gpui_kit::*;
 use koi_core::git::{self, Branch, FileChange, Worktree};
-use koi_core::history::Replies;
+use koi_core::history::{Replies, conversation_held};
 use koi_core::integration::{
     EXECUTABLE_ENV, Integration, PI_TERMINAL_ENV, RESUME_ENV, STATUS_ENV, TITLE_ENV,
 };
 use koi_core::resources::Usage;
 use koi_core::{
-    Activity, Agent, AppPaths, Config, SessionId, SessionRecord, Workspace, cycle, store,
+    Activity, Agent, AppPaths, Config, SessionId, SessionRecord, Workspace, cycle, shell_command,
+    store,
 };
 use koi_term::{CommandBuilder, Signal};
 use rust_i18n::t;
@@ -89,6 +93,9 @@ struct Running {
     shell: bool,
     /// Agent started by hand after this terminal returned to its shell.
     reentered: Option<String>,
+    /// When `reentered` was noticed, until its conversation is found; only
+    /// conversations saved since then can be its own.
+    entered: Option<SystemTime>,
     /// Title set by the program, if any.
     title: Option<String>,
     integration: Option<Integration>,
@@ -137,6 +144,10 @@ pub struct WorkspaceView {
     changes_views: HashMap<PathBuf, Entity<changes_view::ChangesView>>,
     /// Files panels by worktree, created when first shown.
     files_views: HashMap<PathBuf, Entity<files_view::FilesView>>,
+    /// Widths of the file lists in the changes and files panels, kept
+    /// alike across worktrees.
+    changes_layout: Entity<ResizableState>,
+    files_layout: Entity<ResizableState>,
     /// Sessions showing a panel instead of their terminal.
     panels: HashMap<SessionId, Panel>,
     /// Sessions moved to windows of their own.
@@ -217,6 +228,8 @@ impl WorkspaceView {
             changes_refresh: None,
             changes_views: HashMap::new(),
             files_views: HashMap::new(),
+            changes_layout: cx.new(|_| ResizableState::default()),
+            files_layout: cx.new(|_| ResizableState::default()),
             panels: HashMap::new(),
             detached: HashMap::new(),
             usage: HashMap::new(),
@@ -241,11 +254,11 @@ impl WorkspaceView {
         }
         activity::handle_notification_clicks(window, cx);
         cx.observe_window_activation(window, |this, window, cx| {
-            this.track_resources(window.is_window_active(), cx);
+            this.track_resources(window.is_window_active(), window, cx);
             this.mark_seen(window, cx);
         })
         .detach();
-        this.track_resources(window.is_window_active(), cx);
+        this.track_resources(window.is_window_active(), window, cx);
         this.focus_active(window, cx);
         window.defer(cx, move |window, cx| {
             for problem in problems {
@@ -286,7 +299,8 @@ impl WorkspaceView {
     }
 
     /// Starts the program of `record` in a new terminal, wired to report its
-    /// activity when the agent supports it.
+    /// activity when the agent supports it. A session whose agent had exited
+    /// reopens at its shell.
     fn start(
         &mut self,
         record: &SessionRecord,
@@ -296,26 +310,39 @@ impl WorkspaceView {
         let agent = self
             .agent(&record.agent)
             .ok_or_else(|| t!("error.unknown_agent", agent = record.agent).into_owned())?;
-        let integration = Integration::for_agent(agent)
+        // The agent to run; `None` opens the plain shell.
+        let program = Some(agent).filter(|agent| !agent.command.is_empty() && !record.at_shell);
+        // A conversation held by Codex's shared server reopens only through
+        // that server, which plain Codex reaches but Koi's arguments avoid.
+        let integration = program
+            .and_then(Integration::for_agent)
+            .filter(|&integration| {
+                !conversation_held(integration, self.paths.home(), &record.resume)
+            })
             .filter(|integration| integration.reports_activity() && self.status_watcher.is_some());
-        let extra: Vec<String> = record
-            .resume
-            .iter()
-            .cloned()
-            .chain(
-                integration
-                    .into_iter()
-                    .flat_map(|integration| integration.args(&self.paths)),
-            )
-            .collect();
-        let argv = agent.launch_command(&self.shell, &extra);
+        let argv = match program {
+            Some(program) => {
+                let extra: Vec<String> = record
+                    .resume
+                    .iter()
+                    .cloned()
+                    .chain(
+                        integration
+                            .into_iter()
+                            .flat_map(|integration| integration.args(&self.paths)),
+                    )
+                    .collect();
+                program.launch_command(&self.shell, &extra)
+            }
+            None => shell_command(&self.shell),
+        };
         let mut command = CommandBuilder::new(&argv[0]);
         command.args(&argv[1..]);
         command.cwd(&record.dir);
         for (key, value) in PI_TERMINAL_ENV {
             command.env(key, value);
         }
-        if self.status_watcher.is_some() && !agent.command.is_empty() {
+        if self.status_watcher.is_some() && program.is_some() {
             let status_file = self.paths.status_file(record.id);
             // A file left by an earlier run would report a stale state.
             let _ = std::fs::remove_file(&status_file);
@@ -337,7 +364,7 @@ impl WorkspaceView {
             command.env(EXECUTABLE_ENV, executable);
         }
         // Pi and Claude Code report their activity; Codex only finished turns.
-        let watches_output = !agent.command.is_empty()
+        let watches_output = program.is_some()
             && !matches!(integration, Some(Integration::Pi | Integration::Claude));
         let view = TerminalView::spawn(command, cx)
             .map_err(|error| t!("error.start", agent = agent.name, error = error).into_owned())?;
@@ -364,9 +391,9 @@ impl WorkspaceView {
             id,
             Running {
                 view,
-                // A plain shell session starts at the shell.
-                shell: agent.command.is_empty(),
+                shell: program.is_none(),
                 reentered: None,
+                entered: None,
                 title: None,
                 integration,
                 activity: integration.map(|_| Activity::Idle),
@@ -379,7 +406,12 @@ impl WorkspaceView {
         Ok(())
     }
 
+    /// Starts the session again after its terminal ended, running its agent
+    /// even if the agent had exited to the shell before.
     fn restart(&mut self, id: SessionId, window: &mut Window, cx: &mut Context<Self>) {
+        if self.workspace.set_at_shell(id, false) {
+            self.persist(window, cx);
+        }
         let Some(record) = self.workspace.session(id).cloned() else {
             return;
         };

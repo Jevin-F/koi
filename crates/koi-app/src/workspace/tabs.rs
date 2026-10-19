@@ -1,4 +1,5 @@
-//! The tab bar above the main area: the overview, then opened sessions.
+//! The tab bar above the main area: the overview, then opened sessions,
+//! which can be dragged into another order.
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
@@ -6,15 +7,21 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, h_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use koi_core::{SessionRecord, SplitSide};
+use koi_core::{SessionId, SessionRecord, SplitSide};
 use rust_i18n::t;
 
+use super::drag::{self, Dragged};
 use super::views::Panel;
 use super::{ShowOverview, WorkspaceView};
 
 const HEIGHT: Pixels = px(36.);
-/// Widest a session name gets in its tab; longer names end in an ellipsis.
-const TAB_NAME_WIDTH: Pixels = px(200.);
+/// Widest a session tab gets; a name that does not fit ends in an ellipsis
+/// and shows whole on hover.
+const TAB_MAX_WIDTH: Pixels = px(260.);
+
+/// A session tab being dragged to another place in the tab bar.
+#[derive(Clone)]
+struct TabItem(SessionId);
 
 /// A tab: highlighted when active, with hover feedback otherwise.
 fn tab(id: impl Into<ElementId>, active: bool, cx: &App) -> Stateful<Div> {
@@ -159,21 +166,47 @@ impl WorkspaceView {
         )
     }
 
+    /// Moves tab `id` to position `to` in the tab bar.
+    fn move_tab(&mut self, id: SessionId, to: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.workspace.move_tab(id, to) {
+            self.persist(window, cx);
+            cx.notify();
+        }
+    }
+
+    /// The tab of `record`, at position `ix`. Dropping another tab on it
+    /// moves that tab to this position.
     fn render_tab(&self, ix: usize, record: &SessionRecord, cx: &mut Context<Self>) -> AnyElement {
         let id = record.id;
         let active = self.workspace.active == Some(id);
+        let name: SharedString = self.session_name(record).into();
         tab(("session-tab", ix), active, cx)
+            .max_w(TAB_MAX_WIDTH)
             .pr_1()
             .on_click(cx.listener(move |this, _, window, cx| this.open(id, window, cx)))
-            .child(self.status(id, cx).dot(cx))
-            .child(
-                div()
-                    .max_w(TAB_NAME_WIDTH)
-                    .truncate()
-                    .child(self.session_name(record)),
+            .on_drag(
+                Dragged {
+                    item: TabItem(id),
+                    name: name.clone(),
+                },
+                drag::preview,
             )
+            .drag_over::<Dragged<TabItem>>(|style, _, _, cx| style.bg(cx.theme().drop_target))
+            .on_drop(
+                cx.listener(move |this, dragged: &Dragged<TabItem>, window, cx| {
+                    this.move_tab(dragged.item.0, ix, window, cx)
+                }),
+            )
+            .tooltip({
+                let name = name.clone();
+                move |window, cx| Tooltip::new(name.clone()).build(window, cx)
+            })
+            .child(self.status(id, cx).dot(cx))
+            .child(div().min_w_0().truncate().child(name))
             .child(
                 div()
+                    .min_w_0()
+                    .truncate()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
                     .child(self.place_name(record)),

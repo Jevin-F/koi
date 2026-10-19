@@ -26,7 +26,7 @@ mod workspace;
 mod test_support;
 
 pub use activity::{Activity, Attention, reentry_change, unseen_after_change};
-pub use agent::Agent;
+pub use agent::{Agent, shell_command};
 pub use config::Config;
 pub use fuzzy::{FuzzyMatch, fuzzy_match};
 pub use paths::AppPaths;

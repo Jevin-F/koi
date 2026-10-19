@@ -21,7 +21,12 @@ const STATUS_BAR_HEIGHT: Pixels = px(24.);
 impl WorkspaceView {
     /// Samples resources while the window is active and stops otherwise, so
     /// an app in the background does not wake up for numbers nobody sees.
-    pub(super) fn track_resources(&mut self, active: bool, cx: &mut Context<Self>) {
+    pub(super) fn track_resources(
+        &mut self,
+        active: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !active {
             self.sampler = None;
             return;
@@ -29,14 +34,14 @@ impl WorkspaceView {
         if self.sampler.is_some() {
             return;
         }
-        self.sampler = Some(cx.spawn(async move |this, cx| {
+        self.sampler = Some(cx.spawn_in(window, async move |this, cx| {
             loop {
                 let table = cx
                     .background_executor()
                     .spawn(async { ProcessTable::read() })
                     .await;
-                let Ok(replies) = this.update(cx, |this, cx| {
-                    this.apply_sample(table.ok(), cx);
+                let Ok(replies) = this.update_in(cx, |this, window, cx| {
+                    this.apply_sample(table.ok(), window, cx);
                     this.refresh_replies(cx)
                 }) else {
                     break;
@@ -49,7 +54,12 @@ impl WorkspaceView {
 
     /// Records a sample; an unreadable process list clears the numbers
     /// rather than showing stale ones.
-    fn apply_sample(&mut self, table: Option<ProcessTable>, cx: &mut Context<Self>) {
+    fn apply_sample(
+        &mut self,
+        table: Option<ProcessTable>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.usage.clear();
         self.app_memory = None;
         if let Some(table) = table {
@@ -77,8 +87,8 @@ impl WorkspaceView {
             }
             for (id, found) in changes {
                 match found {
-                    Some(agent) => self.enter_agent(id, &agent, cx),
-                    None => self.return_to_shell(id, cx),
+                    Some(agent) => self.enter_agent(id, &agent, window, cx),
+                    None => self.return_to_shell(id, window, cx),
                 }
             }
             self.app_memory = table.process(std::process::id()).map(|usage| usage.memory);

@@ -7,6 +7,7 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_kit::component::input::{Editor, EditorState, InputEvent};
 use gpui_kit::component::notification::Notification;
+use gpui_kit::component::resizable::ResizableState;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, WindowExt, h_flex, v_flex};
@@ -18,9 +19,11 @@ use koi_core::file_tree::{FileTree, TreeRow, ancestors};
 use koi_core::project_files;
 
 use super::file_icon::{file_icon, folder_icon};
+use super::layout::side_list;
 use rust_i18n::t;
 
 pub const CONTEXT: &str = "Files";
+/// Starting width of the tree, which can be dragged wider or narrower.
 const TREE_WIDTH: Pixels = px(260.);
 const ROW_HEIGHT: Pixels = px(24.);
 const INDENT: Pixels = px(12.);
@@ -47,10 +50,17 @@ pub struct FilesView {
     tabs: FileTabs,
     open: HashMap<String, OpenFile>,
     next_load_generation: u64,
+    /// Width of the tree, shared by the files panels of all worktrees.
+    layout: Entity<ResizableState>,
 }
 
 impl FilesView {
-    pub fn new(dir: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        dir: PathBuf,
+        layout: Entity<ResizableState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut this = Self {
             dir,
             window: window.window_handle(),
@@ -60,6 +70,7 @@ impl FilesView {
             tabs: FileTabs::default(),
             open: HashMap::new(),
             next_load_generation: 0,
+            layout,
         };
         this.reload(cx);
         this
@@ -417,7 +428,6 @@ impl FilesView {
 
 impl Render for FilesView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
         let tree = uniform_list(
             "file-tree",
             self.rows.len(),
@@ -431,33 +441,24 @@ impl Render for FilesView {
             }),
         )
         .size_full();
-        h_flex()
+        div()
             .size_full()
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::save))
-            .child(
-                div()
-                    .w(TREE_WIDTH)
-                    .flex_none()
-                    .h_full()
-                    .py_1()
-                    .border_r_1()
-                    .border_color(theme.border)
-                    .child(tree),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .child(self.render_editor(cx)),
-            )
+            .child(side_list(
+                "files-split",
+                &self.layout,
+                TREE_WIDTH,
+                div().size_full().py_1().child(tree),
+                self.render_editor(cx),
+            ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::FilesView;
+    use gpui_kit::component::resizable::ResizableState;
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{AppContext, TestAppContext, WindowOptions};
 
@@ -471,7 +472,8 @@ mod tests {
         let (window, view) = cx.update(|cx| {
             gpui_kit::init(cx);
             gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
-                cx.new(|cx| FilesView::new(dir.clone(), window, cx))
+                let layout = cx.new(|_| ResizableState::default());
+                cx.new(|cx| FilesView::new(dir.clone(), layout, window, cx))
             })
             .unwrap()
         });

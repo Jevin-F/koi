@@ -3,16 +3,20 @@
 //!
 //! Pi, Claude Code and Codex report their conversation in the session's
 //! resume file. OpenCode names its terminal after the conversation, which is
-//! then looked up by title.
+//! then looked up by title. Agents started by hand in a session's shell
+//! report nothing, so their conversation is looked up in their history.
 
 use std::path::Path;
 
 use gpui_kit::*;
-use koi_core::history::session_titled;
+use koi_core::history::{entered_conversation, past_sessions, session_titled};
 use koi_core::integration::Integration;
 use koi_core::{Agent, AppPaths, SessionId, Workspace};
 
 use super::WorkspaceView;
+
+/// Latest conversations searched for the one of an agent started by hand.
+const ENTERED_CANDIDATES: usize = 8;
 
 /// Applies reports left on disk when Koi quit before the watcher handled them.
 pub(super) fn recover_resumes(
@@ -55,6 +59,66 @@ pub(super) fn apply_resume(
 }
 
 impl WorkspaceView {
+    /// Looks up the conversation of the agent started by hand in session
+    /// `id`: the latest one in its directory saved since the agent started
+    /// that no other session holds. Once found, a restart reopens it.
+    pub(super) fn adopt_entered_conversation(
+        &mut self,
+        id: SessionId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(record), Some(running)) = (self.workspace.session(id), self.running.get(&id))
+        else {
+            return;
+        };
+        let (Some(agent_id), Some(since)) = (running.reentered.clone(), running.entered) else {
+            return;
+        };
+        let Some(agent) = self.agent(&agent_id).cloned() else {
+            return;
+        };
+        let held: Vec<Vec<String>> = self
+            .workspace
+            .sessions
+            .iter()
+            .filter(|other| other.id != id && !other.resume.is_empty())
+            .map(|other| other.resume.clone())
+            .collect();
+        let (shell, home, dir) = (
+            self.shell.clone(),
+            self.paths.home().to_owned(),
+            record.dir.clone(),
+        );
+        let found = cx.background_spawn(async move {
+            let listed = past_sessions(&agent, &shell, &home, &dir, ENTERED_CANDIDATES);
+            entered_conversation(listed, since, &held)
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(session) = found.await else {
+                return;
+            };
+            this.update_in(cx, |this, window, cx| {
+                // The agent may have exited, or another one started, meanwhile.
+                let Some(running) = this.running.get_mut(&id) else {
+                    return;
+                };
+                if running.reentered.as_deref() != Some(agent_id.as_str()) {
+                    return;
+                }
+                running.entered = None;
+                if this
+                    .workspace
+                    .adopt_conversation(id, &agent_id, session.resume_args)
+                {
+                    this.persist(window, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Looks up the conversation the terminal title of session `id` names,
     /// for agents that name their terminal after it, and remembers it.
     pub(super) fn follow_titled_session(

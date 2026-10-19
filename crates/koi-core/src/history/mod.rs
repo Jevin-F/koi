@@ -63,6 +63,32 @@ pub fn session_titled(agent: &Agent, shell: &str, cwd: &Path, shown: &str) -> Op
     }
 }
 
+/// Whether another process of the agent holds the conversation that
+/// `resume` reopens, so that the agent started with Koi's arguments could
+/// not open it. Codex's shared background server does so; a plain Codex,
+/// which goes through that server, still can.
+pub fn conversation_held(integration: Integration, home: &Path, resume: &[String]) -> bool {
+    match integration {
+        Integration::Codex => integration
+            .conversation_id(resume)
+            .is_some_and(|id| codex::thread_held(home, id)),
+        Integration::Claude | Integration::Pi | Integration::OpenCode => false,
+    }
+}
+
+/// The conversation of an agent started by hand at `since`, among
+/// `sessions` listed most recent first: the latest one saved since then whose
+/// resume arguments are not `held` by another session.
+pub fn entered_conversation(
+    sessions: Vec<PastSession>,
+    since: SystemTime,
+    held: &[Vec<String>],
+) -> Option<PastSession> {
+    sessions
+        .into_iter()
+        .find(|session| session.updated >= since && !held.contains(&session.resume_args))
+}
+
 /// `.jsonl` files directly in `dir`, with their modification times.
 fn jsonl_files(dir: &Path) -> Vec<(PathBuf, SystemTime)> {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -115,6 +141,30 @@ fn one_line(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn entered_conversations_are_new_and_not_held() {
+        let since = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let session = |id: &str, at: u64| PastSession {
+            title: id.to_owned(),
+            updated: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(at),
+            resume_args: vec!["resume".to_owned(), id.to_owned()],
+        };
+        let listed = vec![
+            session("held", 300),
+            session("mine", 200),
+            session("old", 50),
+        ];
+        let held = [vec!["resume".to_owned(), "held".to_owned()]];
+        assert_eq!(
+            entered_conversation(listed.clone(), since, &held).map(|found| found.title),
+            Some("mine".to_owned())
+        );
+        assert_eq!(
+            entered_conversation(listed[2..].to_vec(), since, &held),
+            None
+        );
+    }
 
     #[test]
     fn content_text_reads_strings_and_blocks() {

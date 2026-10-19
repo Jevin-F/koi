@@ -100,13 +100,29 @@ zh-CN = "删除 Worktree…"
 en = "Remove from List"
 zh-CN = "从列表移除"
 
+[action.hide_project]
+en = "Hide from Sidebar"
+zh-CN = "在侧边栏隐藏"
+
+[action.sidebar_menu]
+en = "More"
+zh-CN = "更多"
+
+[action.show_projects]
+en = "Show Projects"
+zh-CN = "显示项目"
+
+[action.show_all_projects]
+en = "Show All"
+zh-CN = "显示全部"
+
 [action.start_agent]
 en = "Start Agent"
 zh-CN = "启动 Agent"
 
 [action.history]
-en = "Past Conversations…"
-zh-CN = "历史会话…"
+en = "Past Conversations"
+zh-CN = "历史会话"
 
 [action.close_session]
 en = "Close Session"

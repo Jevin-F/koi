@@ -1,11 +1,39 @@
-//! A fixed sidebar beside the workspace's flexible content area.
+//! A fixed sidebar beside the workspace's flexible content area, and the
+//! resizable file lists inside the changes and files panels.
+
+use std::ops::Range;
 
 use gpui_kit::base::{HandleEdge, resize_handle};
 use gpui_kit::component::h_flex;
-use gpui_kit::component::resizable::resize_handle_appearance;
+use gpui_kit::component::resizable::{
+    ResizablePanelGroup, ResizableState, h_resizable, resizable_panel, resize_handle_appearance,
+};
 use gpui_kit::*;
 
 use super::WorkspaceView;
+
+/// Widths a panel's file list can be dragged to.
+const SIDE_LIST_WIDTHS: Range<Pixels> = px(160.)..px(640.);
+
+/// `list` at `width` beside `content`, with a handle between them to drag the
+/// width; `layout` keeps the width while the panel is not shown.
+pub(super) fn side_list(
+    id: &'static str,
+    layout: &Entity<ResizableState>,
+    width: Pixels,
+    list: impl IntoElement,
+    content: impl IntoElement,
+) -> ResizablePanelGroup {
+    h_resizable(id)
+        .with_state(layout)
+        .child(
+            resizable_panel()
+                .size(width)
+                .size_range(SIDE_LIST_WIDTHS)
+                .child(list),
+        )
+        .child(resizable_panel().child(content))
+}
 
 #[derive(Clone, Copy)]
 struct SidebarDrag;
