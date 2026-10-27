@@ -1,6 +1,6 @@
 //! The session list: projects, their worktrees and the sessions in each.
 //! Projects, and sessions within a worktree, can be dragged into another
-//! order.
+//! order; a project collapses to its header when clicked.
 
 use std::path::{Path, PathBuf};
 
@@ -44,14 +44,23 @@ struct SessionItem {
 
 /// One line of the list.
 enum Row<'a> {
-    Project(&'a Project),
+    /// A project's header. `tree` is its only worktree, shown on the header
+    /// instead of on a row of its own.
+    Project {
+        project: &'a Project,
+        tree: Option<&'a Worktree>,
+    },
     /// Why the project's worktrees could not be listed.
     Problem(&'a str),
     Worktree {
         project: &'a Path,
         worktree: &'a Worktree,
     },
-    Session(&'a SessionRecord),
+    /// `nested` sessions are listed below a worktree row.
+    Session {
+        record: &'a SessionRecord,
+        nested: bool,
+    },
 }
 
 impl WorkspaceView {
@@ -64,33 +73,53 @@ impl WorkspaceView {
             .iter()
             .filter(|project| !project.hidden)
         {
-            rows.push(Row::Project(project));
+            let listing = self.worktrees.get(&project.root);
+            let trees = match listing {
+                Some(Ok(trees)) => trees.as_slice(),
+                _ => &[],
+            };
+            let single = match trees {
+                [tree] => Some(tree),
+                _ => None,
+            };
+            rows.push(Row::Project {
+                project,
+                tree: single,
+            });
+            if project.collapsed {
+                continue;
+            }
+            if let Some(Err(problem)) = listing {
+                rows.push(Row::Problem(problem));
+            }
             let sessions = || {
                 self.workspace
                     .sessions
                     .iter()
                     .filter(|session| session.project == project.root)
             };
-            let mut listed: Vec<&Path> = Vec::new();
-            match self.worktrees.get(&project.root) {
-                Some(Ok(trees)) => {
-                    for tree in trees {
-                        rows.push(Row::Worktree {
-                            project: &project.root,
-                            worktree: tree,
-                        });
-                        rows.extend(sessions().filter(|s| s.dir == tree.path).map(Row::Session));
-                        listed.push(&tree.path);
-                    }
+            let nested = single.is_none();
+            for tree in trees {
+                if nested {
+                    rows.push(Row::Worktree {
+                        project: &project.root,
+                        worktree: tree,
+                    });
                 }
-                Some(Err(problem)) => rows.push(Row::Problem(problem)),
-                None => {}
+                rows.extend(
+                    sessions()
+                        .filter(|session| session.dir == tree.path)
+                        .map(|record| Row::Session { record, nested }),
+                );
             }
             // Sessions whose directory is not (or no longer) a listed worktree.
             rows.extend(
                 sessions()
-                    .filter(|session| !listed.contains(&session.dir.as_path()))
-                    .map(Row::Session),
+                    .filter(|session| trees.iter().all(|tree| tree.path != session.dir))
+                    .map(|record| Row::Session {
+                        record,
+                        nested: false,
+                    }),
             );
         }
         rows
@@ -102,9 +131,10 @@ impl WorkspaceView {
             .into_iter()
             .enumerate()
             .map(|(ix, row)| match row {
-                Row::Project(project) => self.render_project(ix, project, cx),
+                Row::Project { project, tree } => self.render_project(ix, project, tree, cx),
                 Row::Problem(problem) => div()
-                    .px_4()
+                    .pl_8()
+                    .pr_4()
                     .py_1()
                     .text_xs()
                     .text_color(cx.theme().danger)
@@ -113,7 +143,7 @@ impl WorkspaceView {
                 Row::Worktree { project, worktree } => {
                     self.render_worktree(ix, project, worktree, cx)
                 }
-                Row::Session(session) => self.render_session(ix, session, cx),
+                Row::Session { record, nested } => self.render_session(ix, record, nested, cx),
             })
             .collect();
         let menu = self.render_sidebar_menu(cx);
@@ -164,22 +194,60 @@ impl WorkspaceView {
             )
     }
 
-    fn render_project(&self, ix: usize, project: &Project, cx: &mut Context<Self>) -> AnyElement {
+    fn render_project(
+        &self,
+        ix: usize,
+        project: &Project,
+        tree: Option<&Worktree>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let root = project.root.clone();
         let hide = {
             let root = root.clone();
-            cx.listener(move |this, _, window, cx| this.set_project_hidden(&root, true, window, cx))
+            cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
+                this.set_project_hidden(&root, true, window, cx)
+            })
         };
         let new_worktree = {
             let root = root.clone();
             cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
                 this.open_new_worktree_dialog(root.clone(), window, cx)
             })
         };
+        let toggle = {
+            let root = root.clone();
+            cx.listener(move |this, _, window, cx| {
+                if this.workspace.toggle_project_collapsed(&root) {
+                    this.persist(window, cx);
+                    cx.notify();
+                }
+            })
+        };
         let name: SharedString = project.name().into();
+        let sessions: Vec<SessionId> = self
+            .workspace
+            .sessions
+            .iter()
+            .filter(|session| session.project == root)
+            .map(|session| session.id)
+            .collect();
+        let unseen = sessions.iter().any(|&id| self.is_unseen(id));
+        let theme = cx.theme();
         h_flex()
             .id(("project", ix))
+            .test_support()
             .group(ROW_GROUP)
+            .when(ix > 0, |row| row.mt_1().border_t_1())
+            .border_color(theme.sidebar_border)
+            .pl_3()
+            .pr_2()
+            .py_1p5()
+            .gap_1p5()
+            .cursor_pointer()
+            .hover(|row| row.bg(theme.sidebar_accent.opacity(0.5)))
+            .on_click(toggle)
             .on_drag(
                 Dragged {
                     item: ProjectItem(root.clone()),
@@ -197,30 +265,57 @@ impl WorkspaceView {
                     }
                 })
             })
-            .pl_3()
-            .pr_2()
-            .pt_3()
-            .pb_1()
-            .gap_1p5()
             .child(
-                Icon::new(gpui_kit::assets::IconName::FolderOpen)
-                    .small()
-                    .flex_none()
-                    .text_color(cx.theme().muted_foreground),
+                Icon::new(if project.collapsed {
+                    IconName::ChevronRight
+                } else {
+                    IconName::ChevronDown
+                })
+                .small()
+                .flex_none()
+                .text_color(theme.muted_foreground),
             )
             .child(
-                div()
+                h_flex()
                     .flex_1()
                     .min_w_0()
-                    .truncate()
-                    .text_sm()
-                    .font_semibold()
-                    .child(name),
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .font_semibold()
+                            .child(name),
+                    )
+                    .children(tree.map(|tree| {
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(self.worktree_label(&root, tree).1)
+                    })),
             )
+            .when(project.collapsed && !sessions.is_empty(), |row| {
+                row.child(
+                    div()
+                        .flex_none()
+                        .px_1p5()
+                        .rounded_full()
+                        .bg(theme.sidebar_accent)
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(sessions.len().to_string()),
+                )
+            })
+            .when(project.collapsed && unseen, |row| {
+                row.child(div().size_1p5().flex_none().rounded_full().bg(theme.danger))
+            })
             .child(
                 hover_actions(false)
                     // A plain folder has no branches to make worktrees of.
-                    .children((!self.is_folder(&project.root)).then(|| {
+                    .children((!self.is_folder(&root)).then(|| {
                         Button::new(("new-worktree", ix))
                             .ghost()
                             .xsmall()
@@ -238,7 +333,8 @@ impl WorkspaceView {
                             .cursor_pointer()
                             .on_click(hide),
                     )
-                    .child(
+                    .child({
+                        let root = root.clone();
                         Button::new(("remove-project", ix))
                             .ghost()
                             .xsmall()
@@ -246,21 +342,23 @@ impl WorkspaceView {
                             .tooltip(t!("action.remove_project"))
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
                                 this.confirm_remove_project(root.clone(), window, cx);
-                            })),
-                    ),
+                            }))
+                    }),
             )
+            .children(tree.map(|tree| self.render_worktree_actions(ix, &root, tree, cx)))
             .into_any_element()
     }
 
-    fn render_worktree(
+    /// The icon and text that name a worktree: its branch, or that the
+    /// project is a plain folder.
+    fn worktree_label(
         &self,
-        ix: usize,
         project: &Path,
         worktree: &Worktree,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let (icon, label) = if self.is_folder(project) {
+    ) -> (gpui_kit::assets::IconName, String) {
+        if self.is_folder(project) {
             (
                 gpui_kit::assets::IconName::Folder,
                 t!("workspace.not_git").into_owned(),
@@ -271,7 +369,38 @@ impl WorkspaceView {
                 .clone()
                 .unwrap_or_else(|| t!("workspace.detached").into_owned());
             (gpui_kit::assets::IconName::GitBranch, branch)
-        };
+        }
+    }
+
+    /// A worktree's own row, shown when its project has several.
+    fn render_worktree(
+        &self,
+        ix: usize,
+        project: &Path,
+        worktree: &Worktree,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let (icon, label) = self.worktree_label(project, worktree);
+        h_flex()
+            .pl_8()
+            .pr_2()
+            .py_0p5()
+            .gap_1()
+            .text_color(cx.theme().muted_foreground)
+            .child(Icon::new(icon).xsmall().flex_none())
+            .child(div().flex_1().min_w_0().truncate().text_xs().child(label))
+            .child(self.render_worktree_actions(ix, project, worktree, cx))
+            .into_any_element()
+    }
+
+    /// A worktree's change count and the buttons that act on it.
+    fn render_worktree_actions(
+        &self,
+        ix: usize,
+        project: &Path,
+        worktree: &Worktree,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let view = cx.entity().downgrade();
         let agents = self.agents.clone();
         let (project, dir) = (project.to_owned(), worktree.path.clone());
@@ -316,13 +445,8 @@ impl WorkspaceView {
             }
         };
         h_flex()
-            .pl_4()
-            .pr_2()
-            .py_0p5()
+            .flex_none()
             .gap_1()
-            .text_color(cx.theme().muted_foreground)
-            .child(Icon::new(icon).xsmall().flex_none())
-            .child(div().flex_1().min_w_0().truncate().text_xs().child(label))
             .children(
                 self.change_count(&worktree.path)
                     .filter(|&count| count > 0)
@@ -342,6 +466,7 @@ impl WorkspaceView {
                     .tooltip(t!("action.history"))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
                         this.open_history(project.clone(), dir.clone(), window, cx);
                     }))
             })
@@ -362,6 +487,7 @@ impl WorkspaceView {
                     .tooltip(t!("action.delete_worktree"))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
                         this.confirm_delete_worktree(project.clone(), dir.clone(), window, cx);
                     }))
             }))
@@ -372,6 +498,7 @@ impl WorkspaceView {
         &self,
         ix: usize,
         session: &SessionRecord,
+        nested: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = session.id;
@@ -394,8 +521,11 @@ impl WorkspaceView {
         let theme = cx.theme();
         v_flex()
             .id(("session", ix))
+            .test_support()
             .group(ROW_GROUP)
-            .mx_2()
+            // Line the status dot up with the name or branch above it.
+            .map(|row| if nested { row.ml_10() } else { row.ml_6() })
+            .mr_2()
             .px_2()
             .py_1()
             .mb_1()

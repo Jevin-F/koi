@@ -103,15 +103,23 @@ mod tests {
         cx.update_window(window, |_, window, cx| {
             window.render_frame(cx);
             // A plain folder starts agents but has no worktrees or changes.
-            assert!(window.try_find(("start-agent", 1usize)).is_some());
+            // Its only worktree's buttons sit on the project's header.
+            assert!(window.try_find(("start-agent", 0usize)).is_some());
             assert!(window.try_find(("new-worktree", 0usize)).is_none());
             assert!(window.try_find("show-changes").is_none());
+            // Clicking the header collapses the project and expands it again.
+            window.click(("project", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("session", 1usize)).is_none());
+            window.click(("project", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("session", 1usize)).is_some());
             let sidebar = window.find("sidebar-rows").bounds();
             let from = point(sidebar.right() - px(2.), sidebar.center().y);
             window.drag(from, point(from.x + px(80.), from.y), cx);
             window.render_frame(cx);
             assert!(window.find("sidebar-rows").bounds().size.width > sidebar.size.width + px(40.));
-            window.click(("rename-session", 2usize), cx);
+            window.click(("rename-session", 1usize), cx);
             window.render_frame(cx);
             assert!(window.try_find("dialog").is_some());
             assert!(window.try_find("use-agent-name").is_some());

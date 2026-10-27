@@ -35,6 +35,9 @@ pub struct Project {
     /// Left out of the sidebar; its sessions keep running.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    /// Listed in the sidebar without its worktrees and sessions.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub collapsed: bool,
 }
 
 impl Project {
@@ -119,6 +122,7 @@ impl Workspace {
         self.projects.push(Project {
             root,
             hidden: false,
+            collapsed: false,
         });
         true
     }
@@ -136,6 +140,22 @@ impl Workspace {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Collapses an expanded project in the sidebar or expands a collapsed
+    /// one; returns `false` if there is no such project.
+    pub fn toggle_project_collapsed(&mut self, root: &Path) -> bool {
+        match self
+            .projects
+            .iter_mut()
+            .find(|project| project.root == root)
+        {
+            Some(project) => {
+                project.collapsed = !project.collapsed;
+                true
+            }
+            None => false,
         }
     }
 
@@ -492,6 +512,29 @@ mod tests {
 
         assert!(workspace.set_project_hidden(root, false));
         assert!(!workspace.projects[0].hidden);
+    }
+
+    #[test]
+    fn collapsing_a_project_is_saved() {
+        let mut workspace = Workspace::default();
+        workspace.add_project("/repo".into());
+        let root = Path::new("/repo");
+        assert!(workspace.toggle_project_collapsed(root));
+        assert!(workspace.projects[0].collapsed);
+        assert!(!workspace.toggle_project_collapsed(Path::new("/missing")));
+
+        let restored: Workspace =
+            serde_json::from_str(&serde_json::to_string(&workspace).unwrap()).unwrap();
+        assert!(restored.projects[0].collapsed);
+
+        assert!(workspace.toggle_project_collapsed(root));
+        assert!(!workspace.projects[0].collapsed);
+        assert!(
+            !serde_json::to_string(&workspace)
+                .unwrap()
+                .contains("collapsed"),
+            "expanded projects save as before"
+        );
     }
 
     #[test]
