@@ -541,6 +541,14 @@ zh-CN = "%{count} 天前"
 en = "%{app} Settings"
 zh-CN = "%{app} 设置"
 
+[settings.general]
+en = "General"
+zh-CN = "通用"
+
+[settings.theme]
+en = "Theme"
+zh-CN = "主题"
+
 [settings.appearance]
 en = "Appearance"
 zh-CN = "外观"

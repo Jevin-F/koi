@@ -195,6 +195,23 @@ mod tests {
         })
         .unwrap();
         assert_eq!(cx.update(|cx| cx.windows().len()), 2);
+        let settings_window = cx.update(|cx| {
+            cx.windows()
+                .into_iter()
+                .find(|other| *other != window)
+                .unwrap()
+        });
+        cx.update_window(settings_window, |_, window, cx| {
+            window.render_frame(cx);
+            // Opens on the general page; the sidebar switches to shortcuts.
+            assert!(window.try_find(("language", 0usize)).is_some());
+            assert!(window.try_find(("reset-shortcut", 0usize)).is_none());
+            // gpui-kit names sidebar entries "<menu>-<page>"; shortcuts is the third page.
+            window.click("0-2", cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("reset-shortcut", 0usize)).is_some());
+        })
+        .unwrap();
         let saved: koi_core::Workspace = koi_core::store::load(&state_file).unwrap();
         assert_eq!(saved.sessions[0].label.as_deref(), Some("Review PR 385"));
         std::fs::remove_dir_all(home).unwrap();
