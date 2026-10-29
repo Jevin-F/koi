@@ -32,15 +32,22 @@ pub(super) fn project_dir(home: &Path, cwd: &Path) -> PathBuf {
 
 /// The generated title, else the last prompt, else the first prompt.
 /// `None` if the file belongs to another directory or has no prompt.
+///
+/// Entries record the directory the agent is in at the time, which moves
+/// when it changes directory in its shell, so only the first one tells
+/// where the conversation started.
 fn title(path: &Path, cwd: &Path) -> Option<String> {
     let (mut generated, mut last_prompt, mut first_prompt) = (None, None, None);
+    let mut dir_checked = false;
     for line in lines(path) {
-        if let Some(entry) = parse_if(&line, "\"cwd\"")
-            && entry["cwd"]
-                .as_str()
-                .is_some_and(|dir| Path::new(dir) != cwd)
+        if !dir_checked
+            && let Some(entry) = parse_if(&line, "\"cwd\"")
+            && let Some(dir) = entry["cwd"].as_str()
         {
-            return None;
+            if Path::new(dir) != cwd {
+                return None;
+            }
+            dir_checked = true;
         }
         if let Some(entry) = parse_if(&line, "\"ai-title\"") {
             generated = entry["aiTitle"].as_str().and_then(one_line).or(generated);
@@ -93,6 +100,17 @@ mod tests {
             "empty",
             &[r#"{"type":"system","cwd":"/code/my_app"}"#],
         );
+        // Started here, then moved into a subdirectory and out of the project.
+        write(
+            home.path(),
+            "-code-my-app",
+            "moved",
+            &[
+                user,
+                r#"{"type":"user","cwd":"/code/my_app/src","message":{"content":"next"}}"#,
+                r#"{"type":"user","cwd":"/tmp/scratch","message":{"content":"last"}}"#,
+            ],
+        );
         // Same encoded name, different directory.
         write(
             home.path(),
@@ -102,7 +120,7 @@ mod tests {
         );
 
         let mut found = sessions(home.path(), Path::new(cwd));
-        found.sort_by(|a, b| a.title.cmp(&b.title));
+        found.sort_by(|a, b| (&a.title, &a.resume_args).cmp(&(&b.title, &b.resume_args)));
         let summary: Vec<(&str, &[String])> = found
             .iter()
             .map(|s| (s.title.as_str(), s.resume_args.as_slice()))
@@ -117,6 +135,10 @@ mod tests {
                 (
                     "fix the login bug",
                     &["--resume".to_owned(), "first".to_owned()][..]
+                ),
+                (
+                    "fix the login bug",
+                    &["--resume".to_owned(), "moved".to_owned()][..]
                 ),
             ]
         );
