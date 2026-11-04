@@ -212,6 +212,21 @@ mod tests {
             assert!(window.try_find(("reset-shortcut", 0usize)).is_some());
         })
         .unwrap();
+        // The tab's menu moves the session to a window of its own.
+        cx.update_window(window, |_, window, cx| {
+            window.right_click(("session-tab", 0usize), cx);
+        })
+        .unwrap();
+        // The menu is built in a deferred callback.
+        cx.run_until_parked();
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.press("up", cx);
+            window.press("enter", cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        assert_eq!(cx.update(|cx| cx.windows().len()), 3);
         let saved: koi_core::Workspace = koi_core::store::load(&state_file).unwrap();
         assert_eq!(saved.sessions[0].label.as_deref(), Some("Review PR 385"));
         std::fs::remove_dir_all(home).unwrap();

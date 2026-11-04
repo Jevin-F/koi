@@ -37,6 +37,66 @@ impl Render for SessionWindow {
     }
 }
 
+/// Opens the window of session `id`; a failure is reported in `main`.
+fn open_session_window(
+    workspace: Entity<WorkspaceView>,
+    main: AnyWindowHandle,
+    id: SessionId,
+    title: String,
+    cx: &mut App,
+) {
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::centered(SIZE, cx)),
+        titlebar: Some(TitlebarOptions {
+            title: Some(title.into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let opened = gpui_kit::open_window(options, cx, |window, cx| {
+        let weak = workspace.downgrade();
+        window.on_window_should_close(cx, {
+            let weak = weak.clone();
+            move |_, cx| {
+                weak.update(cx, |this, cx| {
+                    this.detached.remove(&id);
+                    cx.notify();
+                })
+                .ok();
+                true
+            }
+        });
+        cx.new(|cx| SessionWindow {
+            workspace: weak,
+            id,
+            _workspace_changes: cx.observe(&workspace, |_, _, cx| cx.notify()),
+            _activation: cx.observe_window_activation(
+                window,
+                |this: &mut SessionWindow, window, cx| {
+                    if window.is_window_active() {
+                        let id = this.id;
+                        this.workspace
+                            .update(cx, |workspace, cx| workspace.set_unseen(id, false, cx))
+                            .ok();
+                    }
+                },
+            ),
+        })
+    });
+    match opened {
+        Ok((handle, _)) => workspace.update(cx, |this, cx| {
+            this.detached.insert(id, handle);
+            cx.notify();
+        }),
+        Err(error) => {
+            main.update(cx, |_, window, cx| {
+                workspace.update(cx, |this, cx| this.report(error.to_string(), window, cx));
+            })
+            .ok();
+        }
+    }
+}
+
 impl WorkspaceView {
     /// Moves session `id` to a window of its own, or brings that window to
     /// the front if it is already there.
@@ -51,59 +111,15 @@ impl WorkspaceView {
         let Some(record) = self.workspace.session(id) else {
             return;
         };
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::centered(SIZE, cx)),
-            titlebar: Some(TitlebarOptions {
-                title: Some(
-                    format!(
-                        "{} — {}",
-                        self.session_name(record),
-                        self.place_name(record)
-                    )
-                    .into(),
-                ),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let workspace = cx.entity();
-        let opened = gpui_kit::open_window(options, cx, |window, cx| {
-            let weak = workspace.downgrade();
-            window.on_window_should_close(cx, {
-                let weak = weak.clone();
-                move |_, cx| {
-                    weak.update(cx, |this, cx| {
-                        this.detached.remove(&id);
-                        cx.notify();
-                    })
-                    .ok();
-                    true
-                }
-            });
-            cx.new(|cx| SessionWindow {
-                workspace: weak,
-                id,
-                _workspace_changes: cx.observe(&workspace, |_, _, cx| cx.notify()),
-                _activation: cx.observe_window_activation(
-                    window,
-                    |this: &mut SessionWindow, window, cx| {
-                        if window.is_window_active() {
-                            let id = this.id;
-                            this.workspace
-                                .update(cx, |workspace, cx| workspace.set_unseen(id, false, cx))
-                                .ok();
-                        }
-                    },
-                ),
-            })
-        });
-        match opened {
-            Ok((handle, _)) => {
-                self.detached.insert(id, handle);
-                cx.notify();
-            }
-            Err(error) => self.report(error.to_string(), window, cx),
-        }
+        let title = format!(
+            "{} — {}",
+            self.session_name(record),
+            self.place_name(record)
+        );
+        let (workspace, main) = (cx.entity(), window.window_handle());
+        // A new window is drawn as it opens, and drawing it reads this view,
+        // which cannot be read while it is being updated as it is here.
+        cx.defer(move |cx| open_session_window(workspace, main, id, title, cx));
     }
 
     /// Closes the session's own window, showing it in the main window again.

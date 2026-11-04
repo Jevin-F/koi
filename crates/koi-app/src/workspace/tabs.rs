@@ -181,6 +181,7 @@ impl WorkspaceView {
         let active = self.workspace.active == Some(id);
         let name: SharedString = self.session_name(record).into();
         tab(("session-tab", ix), active, cx)
+            .test_support()
             .max_w(TAB_MAX_WIDTH)
             .pr_1()
             .on_click(cx.listener(move |this, _, window, cx| this.open(id, window, cx)))
