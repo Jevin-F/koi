@@ -20,6 +20,7 @@ mod refresh;
 mod replies;
 mod resources;
 mod resume;
+mod session_end;
 mod sidebar;
 mod split;
 mod status;
@@ -253,6 +254,7 @@ impl WorkspaceView {
             }
         }
         activity::handle_notification_clicks(window, cx);
+        Self::end_sessions_on_quit(cx);
         cx.observe_window_activation(window, |this, window, cx| {
             this.track_resources(window.is_window_active(), window, cx);
             this.mark_seen(window, cx);
@@ -503,7 +505,7 @@ impl WorkspaceView {
 
     fn close_session(&mut self, id: SessionId, window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.remove_session(id);
-        self.running.remove(&id);
+        self.end_sessions(vec![id], window, cx);
         self.update_badge();
         self.after_tab_change(window, cx);
     }
@@ -542,9 +544,8 @@ impl WorkspaceView {
     }
 
     fn remove_project(&mut self, root: &Path, window: &mut Window, cx: &mut Context<Self>) {
-        for id in self.workspace.remove_project(root) {
-            self.running.remove(&id);
-        }
+        let ids = self.workspace.remove_project(root);
+        self.end_sessions(ids, window, cx);
         self.worktrees.remove(root);
         self.folders.remove(root);
         self.forget_git_dir(root);
@@ -584,9 +585,8 @@ impl WorkspaceView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        for id in self.workspace.remove_sessions_in(&dir) {
-            self.running.remove(&id);
-        }
+        let ids = self.workspace.remove_sessions_in(&dir);
+        self.end_sessions(ids, window, cx);
         self.after_tab_change(window, cx);
         let task = cx.background_spawn({
             let project = project.clone();

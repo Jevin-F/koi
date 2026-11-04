@@ -1,4 +1,5 @@
-//! Memory and CPU used by processes, read with `ps`.
+//! Running processes, read with `ps`: what they use and which ones run
+//! below a terminal.
 
 use std::collections::HashMap;
 use std::io;
@@ -55,7 +56,7 @@ impl ProcessTable {
     }
 
     /// Parses lines of `pid ppid rss-in-KiB cpu-percent command`, skipping malformed ones.
-    fn parse(output: &str) -> Self {
+    pub(crate) fn parse(output: &str) -> Self {
         let processes: Vec<Process> = output
             .lines()
             .filter_map(|line| {
@@ -97,36 +98,56 @@ impl ProcessTable {
     /// What process `pid` and everything it started use; `None` if it is
     /// not running.
     pub fn tree(&self, pid: u32) -> Option<Usage> {
-        let mut total = self.process(pid)?;
-        let mut pending = vec![pid];
-        while let Some(parent) = pending.pop() {
-            for &ix in self.children.get(&parent).into_iter().flatten() {
-                let child = &self.processes[ix];
-                total = total + child.usage;
-                pending.push(child.pid);
-            }
-        }
-        Some(total)
+        let own = self.process(pid)?;
+        Some(
+            self.descendants(pid)
+                .iter()
+                .fold(own, |total, child| total + child.usage),
+        )
     }
 
     /// The first of `agents` whose program runs in a process below `pid`.
     pub fn agent_below<'a>(&self, pid: u32, agents: &'a [Agent]) -> Option<&'a Agent> {
+        self.descendants(pid).into_iter().find_map(|child| {
+            agents.iter().find(|agent| {
+                agent
+                    .program_name()
+                    .is_some_and(|program| runs(&child.command, program))
+            })
+        })
+    }
+
+    /// Process `pid`, if running, and every process below it, each with its
+    /// command line.
+    pub(crate) fn family(&self, pid: u32) -> Vec<(u32, &str)> {
+        self.processes
+            .iter()
+            .filter(|process| process.pid == pid)
+            .chain(self.descendants(pid))
+            .map(|process| (process.pid, process.command.as_str()))
+            .collect()
+    }
+
+    /// The command line of process `pid`, if it is running.
+    pub(crate) fn command(&self, pid: u32) -> Option<&str> {
+        self.processes
+            .iter()
+            .find(|process| process.pid == pid)
+            .map(|process| process.command.as_str())
+    }
+
+    /// Every process below `pid`, parents before their children.
+    fn descendants(&self, pid: u32) -> Vec<&Process> {
+        let mut found = Vec::new();
         let mut pending = vec![pid];
         while let Some(parent) = pending.pop() {
             for &ix in self.children.get(&parent).into_iter().flatten() {
                 let child = &self.processes[ix];
-                let found = agents.iter().find(|agent| {
-                    agent
-                        .program_name()
-                        .is_some_and(|program| runs(&child.command, program))
-                });
-                if found.is_some() {
-                    return found;
-                }
+                found.push(child);
                 pending.push(child.pid);
             }
         }
-        None
+        found
     }
 }
 
@@ -193,6 +214,18 @@ mod tests {
             Some(2048 * 1024)
         );
         assert_eq!(table.tree(999), None);
+    }
+
+    #[test]
+    fn lists_a_process_and_everything_below_it() {
+        let table = ProcessTable::parse(OUTPUT);
+        let mut pids: Vec<u32> = table.family(100).into_iter().map(|(pid, _)| pid).collect();
+        pids.sort_unstable();
+        assert_eq!(pids, [100, 101, 102]);
+        assert_eq!(table.family(102), [(102, "/bin/sh -c sleep")]);
+        assert!(table.family(999).is_empty());
+        assert_eq!(table.command(202), Some("opencode"));
+        assert_eq!(table.command(999), None);
     }
 
     #[test]

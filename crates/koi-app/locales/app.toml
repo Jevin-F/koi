@@ -639,6 +639,10 @@ zh-CN = "无法自动感知 Koi 之外的改动：%{error}"
 en = "This repository has no remote to push to."
 zh-CN = "这个仓库没有可推送的远端。"
 
+[error.stop]
+en = "Could not stop the session's processes: %{error}"
+zh-CN = "无法结束会话启动的进程：%{error}"
+
 [error.git]
 en = "Git operation failed: %{error}"
 zh-CN = "git 操作失败：%{error}"

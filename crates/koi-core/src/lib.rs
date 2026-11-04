@@ -15,6 +15,7 @@ pub mod integration;
 pub mod layout;
 pub mod opencode;
 mod paths;
+pub mod process_stop;
 pub mod project_files;
 pub mod resources;
 pub mod session_label;
