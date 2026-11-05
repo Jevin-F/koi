@@ -38,7 +38,7 @@ use gpui_kit::component::resizable::ResizableState;
 use gpui_kit::component::{ActiveTheme, Icon, WindowExt, v_flex};
 use gpui_kit::*;
 use koi_core::git::{self, Branch, FileChange, Worktree};
-use koi_core::history::{Replies, conversation_held};
+use koi_core::history::{PastSession, Replies, conversation_held};
 use koi_core::integration::{
     EXECUTABLE_ENV, Integration, PI_TERMINAL_ENV, RESUME_ENV, STATUS_ENV, TITLE_ENV,
 };
@@ -481,16 +481,25 @@ impl WorkspaceView {
         cx.notify();
     }
 
+    /// Starts `agent` in a new session, resuming `past` if given, which then
+    /// names the session unless the user named that conversation before.
     fn start_agent(
         &mut self,
         project: &Path,
         dir: PathBuf,
         agent: &str,
-        resume: Vec<String>,
+        past: Option<PastSession>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let resume = past
+            .as_ref()
+            .map(|past| past.resume_args.clone())
+            .unwrap_or_default();
         let id = self.workspace.add_session(project, dir, agent, resume);
+        if let Some(past) = &past {
+            self.workspace.name_after_history(id, &past.title);
+        }
         let record = self
             .workspace
             .session(id)

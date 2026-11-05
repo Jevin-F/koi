@@ -108,10 +108,16 @@ impl WorkspaceView {
         &mut self,
         project: PathBuf,
         dir: PathBuf,
-        entries: Vec<Entry>,
+        mut entries: Vec<Entry>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Names the user gave conversations in Koi win over the agent's titles.
+        for entry in &mut entries {
+            if let Some(name) = self.workspace.conversation_name(&entry.session.resume_args) {
+                entry.session.title = name.to_owned();
+            }
+        }
         let title = t!("dialog.history", name = self.place_of(&project, &dir)).into_owned();
         let view = cx.entity().downgrade();
         let entries = Rc::new(entries);
@@ -120,7 +126,7 @@ impl WorkspaceView {
             let now = SystemTime::now();
             let rows = entries.iter().enumerate().map(|(ix, entry)| {
                 let (view, project, dir) = (view.clone(), project.clone(), dir.clone());
-                let (agent, resume) = (entry.agent.clone(), entry.session.resume_args.clone());
+                let (agent, past) = (entry.agent.clone(), entry.session.clone());
                 let age = Age::of(
                     now.duration_since(entry.session.updated)
                         .unwrap_or_default(),
@@ -140,7 +146,7 @@ impl WorkspaceView {
                                 &project,
                                 dir.clone(),
                                 &agent,
-                                resume.clone(),
+                                Some(past.clone()),
                                 window,
                                 cx,
                             );

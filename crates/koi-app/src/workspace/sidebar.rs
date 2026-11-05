@@ -413,14 +413,7 @@ impl WorkspaceView {
                     PopupMenuItem::new(agent.name.clone()).icon(icon).on_click(
                         move |_, window, cx| {
                             view.update(cx, |this, cx| {
-                                this.start_agent(
-                                    &project,
-                                    dir.clone(),
-                                    &id,
-                                    Vec::new(),
-                                    window,
-                                    cx,
-                                );
+                                this.start_agent(&project, dir.clone(), &id, None, window, cx);
                             })
                             .ok();
                         },

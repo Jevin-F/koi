@@ -78,6 +78,14 @@ pub struct SessionRecord {
     pub at_shell: bool,
 }
 
+/// A name the user gave the session that held a conversation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct ConversationName {
+    /// Arguments that resume the conversation.
+    resume: Vec<String>,
+    name: String,
+}
+
 /// Where a split shows its session, relative to the active tab.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -110,6 +118,10 @@ pub struct Workspace {
     pub active: Option<SessionId>,
     /// Never the active session, which is shown once only.
     pub split: Option<Split>,
+    /// Names the user gave conversations, kept after their sessions close
+    /// so that reopening a conversation from history keeps its name.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    conversation_names: Vec<ConversationName>,
 }
 
 impl Workspace {
@@ -185,7 +197,8 @@ impl Workspace {
         self.remove_sessions(|session| session.project == root)
     }
 
-    /// Adds a session and opens it.
+    /// Adds a session and opens it. A session resuming a conversation the
+    /// user named takes that name.
     pub fn add_session(
         &mut self,
         project: &Path,
@@ -195,11 +208,12 @@ impl Workspace {
     ) -> SessionId {
         let next = self.sessions.iter().map(|session| session.id.0 + 1).max();
         let id = SessionId(next.unwrap_or(1));
+        let label = self.conversation_name(&resume).map(str::to_owned);
         self.sessions.push(SessionRecord {
             id,
             project: project.to_owned(),
-            label: None,
-            named_by_user: false,
+            named_by_user: label.is_some(),
+            label,
             dir,
             agent: agent.to_owned(),
             resume,
@@ -230,23 +244,61 @@ impl Workspace {
         let name = session_label::bounded(name.trim());
         session.label = (!name.is_empty()).then_some(name);
         session.named_by_user = true;
+        self.remember_name(id);
         true
     }
 
     /// Uses a submitted message as the default name, unless already named
     /// automatically or by the user.
     pub fn auto_name_session(&mut self, id: SessionId, message: &str) -> bool {
+        self.name_by_default(id, session_label::from_message(message))
+    }
+
+    /// Uses the title a resumed conversation has in the agent's history as
+    /// the default name, unless already named.
+    pub fn name_after_history(&mut self, id: SessionId, title: &str) -> bool {
+        let title = session_label::bounded(title.trim());
+        self.name_by_default(id, (!title.is_empty()).then_some(title))
+    }
+
+    fn name_by_default(&mut self, id: SessionId, label: Option<String>) -> bool {
         let Some(session) = self.sessions.iter_mut().find(|session| session.id == id) else {
             return false;
         };
         if session.named_by_user || session.label.is_some() {
             return false;
         }
-        let Some(label) = session_label::from_message(message) else {
+        let Some(label) = label else {
             return false;
         };
         session.label = Some(label);
         true
+    }
+
+    /// The name the user gave the conversation that `resume` reopens.
+    pub fn conversation_name(&self, resume: &[String]) -> Option<&str> {
+        self.conversation_names
+            .iter()
+            .find(|known| !resume.is_empty() && known.resume == resume)
+            .map(|known| known.name.as_str())
+    }
+
+    /// Records the name the user gave session `id` for its conversation, or
+    /// forgets it once the user went back to the agent name.
+    fn remember_name(&mut self, id: SessionId) {
+        let Some(session) = self.session(id) else {
+            return;
+        };
+        if !session.named_by_user || session.resume.is_empty() {
+            return;
+        }
+        let (resume, label) = (session.resume.clone(), session.label.clone());
+        self.conversation_names
+            .retain(|known| known.resume != resume);
+        if let Some(name) = label {
+            self.conversation_names
+                .push(ConversationName { resume, name });
+        }
     }
 
     /// Remembers the arguments that reopen the session's conversation after
@@ -259,6 +311,7 @@ impl Workspace {
             return false;
         }
         session.resume = resume;
+        self.remember_name(id);
         true
     }
 
@@ -290,6 +343,7 @@ impl Workspace {
         session.agent = agent.to_owned();
         session.resume = resume;
         session.at_shell = false;
+        self.remember_name(id);
         true
     }
 
@@ -936,6 +990,41 @@ mod tests {
         let mut restored: Workspace = serde_json::from_str(&saved).unwrap();
         assert!(!restored.auto_name_session(ids[0], "Another task"));
         assert_eq!(restored.session(ids[0]).unwrap().label, None);
+    }
+
+    #[test]
+    fn reopened_conversations_keep_the_name_the_user_gave_them() {
+        let (mut workspace, ids) = workspace_with_sessions(1);
+        let resume = vec!["--session".to_owned(), "/s/1.jsonl".to_owned()];
+        // Named before the agent reported its conversation.
+        workspace.rename_session(ids[0], "123");
+        workspace.set_resume(ids[0], resume.clone());
+        workspace.remove_session(ids[0]);
+        let mut restored: Workspace =
+            serde_json::from_str(&serde_json::to_string(&workspace).unwrap()).unwrap();
+        assert_eq!(restored.conversation_name(&resume), Some("123"));
+
+        let id = restored.add_session(Path::new("/repo"), "/repo".into(), "pi", resume.clone());
+        assert!(!restored.name_after_history(id, "first prompt"));
+        assert!(!restored.auto_name_session(id, "456"));
+        assert_eq!(restored.session(id).unwrap().label.as_deref(), Some("123"));
+
+        restored.rename_session(id, "");
+        assert_eq!(restored.conversation_name(&resume), None);
+        assert_eq!(restored.conversation_name(&[]), None);
+    }
+
+    #[test]
+    fn unnamed_conversations_reopen_with_their_history_title() {
+        let (mut workspace, _) = workspace_with_sessions(0);
+        let resume = vec!["--resume".to_owned(), "abc".to_owned()];
+        let id = workspace.add_session(Path::new("/repo"), "/repo".into(), "claude", resume);
+        assert!(workspace.name_after_history(id, "  fix the login bug "));
+        assert!(!workspace.auto_name_session(id, "next message"));
+        assert_eq!(
+            workspace.session(id).unwrap().label.as_deref(),
+            Some("fix the login bug")
+        );
     }
 
     #[test]

@@ -129,7 +129,7 @@ impl WorkspaceView {
                 project,
                 dir,
                 agent,
-            } => self.start_agent(&project, dir, &agent, Vec::new(), window, cx),
+            } => self.start_agent(&project, dir, &agent, None, window, cx),
             Command::History { project, dir } => self.open_history(project, dir, window, cx),
             Command::OpenFile { session, path } => self.open_file(session, path, window, cx),
         }
