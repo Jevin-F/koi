@@ -30,14 +30,14 @@ pub(super) fn project_dir(home: &Path, cwd: &Path) -> PathBuf {
     home.join(".claude/projects").join(encoded)
 }
 
-/// The generated title, else the last prompt, else the first prompt.
-/// `None` if the file belongs to another directory or has no prompt.
+/// The name the user gave the conversation with `/rename`, else its first
+/// prompt. `None` if the file belongs to another directory or has no prompt.
 ///
 /// Entries record the directory the agent is in at the time, which moves
 /// when it changes directory in its shell, so only the first one tells
 /// where the conversation started.
 fn title(path: &Path, cwd: &Path) -> Option<String> {
-    let (mut generated, mut last_prompt, mut first_prompt) = (None, None, None);
+    let (mut named, mut first_prompt) = (None, None);
     let mut dir_checked = false;
     for line in lines(path) {
         if !dir_checked
@@ -49,13 +49,8 @@ fn title(path: &Path, cwd: &Path) -> Option<String> {
             }
             dir_checked = true;
         }
-        if let Some(entry) = parse_if(&line, "\"ai-title\"") {
-            generated = entry["aiTitle"].as_str().and_then(one_line).or(generated);
-        } else if let Some(entry) = parse_if(&line, "\"last-prompt\"") {
-            last_prompt = entry["lastPrompt"]
-                .as_str()
-                .and_then(one_line)
-                .or(last_prompt);
+        if let Some(entry) = parse_if(&line, "\"custom-title\"") {
+            named = entry["customTitle"].as_str().and_then(one_line).or(named);
         } else if first_prompt.is_none()
             && let Some(entry) = parse_if(&line, "\"type\":\"user\"")
         {
@@ -64,7 +59,7 @@ fn title(path: &Path, cwd: &Path) -> Option<String> {
                 .and_then(|text| one_line(&text));
         }
     }
-    generated.or(last_prompt).or(first_prompt)
+    named.or(first_prompt)
 }
 
 #[cfg(test)]
@@ -84,14 +79,26 @@ mod tests {
         let cwd = "/code/my_app";
         let user =
             r#"{"type":"user","cwd":"/code/my_app","message":{"content":"fix the login bug"}}"#;
-        write(home.path(), "-code-my-app", "first", &[user]);
+        // Generated titles and later prompts do not name a conversation.
+        write(
+            home.path(),
+            "-code-my-app",
+            "first",
+            &[
+                user,
+                r#"{"type":"ai-title","aiTitle":"Generated","sessionId":"first"}"#,
+                r#"{"type":"last-prompt","lastPrompt":"latest","sessionId":"first"}"#,
+            ],
+        );
         write(
             home.path(),
             "-code-my-app",
             "titled",
             &[
                 user,
-                r#"{"type":"ai-title","aiTitle":"Login fix","sessionId":"titled"}"#,
+                r#"{"type":"ai-title","aiTitle":"Generated","sessionId":"titled"}"#,
+                r#"{"type":"custom-title","customTitle":"Login fix","sessionId":"titled"}"#,
+                r#"{"type":"last-prompt","lastPrompt":"latest","sessionId":"titled"}"#,
             ],
         );
         write(
