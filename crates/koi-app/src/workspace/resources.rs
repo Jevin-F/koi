@@ -116,9 +116,11 @@ impl WorkspaceView {
             .usage
             .values()
             .fold(Usage::default(), |total, usage| total + *usage);
+        // Sessions of hidden projects keep running but are not counted.
         let running = self
-            .running
-            .values()
+            .workspace
+            .shown_sessions()
+            .filter_map(|session| self.running.get(&session.id))
             .filter(|running| running.view.read(cx).exit_code().is_none())
             .count();
         let theme = cx.theme();
