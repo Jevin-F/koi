@@ -284,12 +284,21 @@ impl Workspace {
     }
 
     /// Records the name the user gave session `id` for its conversation, or
-    /// forgets it once the user went back to the agent name.
+    /// forgets it once the user went back to the agent name. A conversation
+    /// another session also holds is left alone, as the name may be meant
+    /// for that session.
     fn remember_name(&mut self, id: SessionId) {
         let Some(session) = self.session(id) else {
             return;
         };
         if !session.named_by_user || session.resume.is_empty() {
+            return;
+        }
+        let shared = self
+            .sessions
+            .iter()
+            .any(|other| other.id != id && other.resume == session.resume);
+        if shared {
             return;
         }
         let (resume, label) = (session.resume.clone(), session.label.clone());
@@ -310,8 +319,13 @@ impl Workspace {
         if session.resume == resume {
             return false;
         }
+        let first = session.resume.is_empty();
         session.resume = resume;
-        self.remember_name(id);
+        // A name given before the conversation was known is meant for it;
+        // conversations the session moves on to later keep their own names.
+        if first {
+            self.remember_name(id);
+        }
         true
     }
 
@@ -340,10 +354,13 @@ impl Workspace {
         if session.agent == agent && session.resume == resume && !session.at_shell {
             return false;
         }
+        let first = session.resume.is_empty();
         session.agent = agent.to_owned();
         session.resume = resume;
         session.at_shell = false;
-        self.remember_name(id);
+        if first {
+            self.remember_name(id);
+        }
         true
     }
 
@@ -1012,6 +1029,30 @@ mod tests {
         restored.rename_session(id, "");
         assert_eq!(restored.conversation_name(&resume), None);
         assert_eq!(restored.conversation_name(&[]), None);
+    }
+
+    #[test]
+    fn names_stay_with_the_conversation_they_were_given_to() {
+        let (mut workspace, ids) = workspace_with_sessions(2);
+        let resume = |id: &str| vec!["--session".to_owned(), id.to_owned()];
+        workspace.set_resume(ids[0], resume("old"));
+        workspace.rename_session(ids[0], "Old task");
+
+        // Another session showing the same conversation is renamed.
+        workspace.set_resume(ids[1], resume("old"));
+        workspace.rename_session(ids[1], "New task");
+        assert_eq!(
+            workspace.conversation_name(&resume("old")),
+            Some("Old task")
+        );
+
+        // The session moves on to another conversation.
+        workspace.set_resume(ids[0], resume("next"));
+        assert_eq!(workspace.conversation_name(&resume("next")), None);
+        assert_eq!(
+            workspace.conversation_name(&resume("old")),
+            Some("Old task")
+        );
     }
 
     #[test]
