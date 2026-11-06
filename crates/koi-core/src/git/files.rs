@@ -30,6 +30,12 @@ pub fn files(dir: &Path) -> Result<Vec<String>> {
     Ok(files)
 }
 
+/// The committed text of `path` (relative to `dir`) at `HEAD`, or `None`
+/// when there is no such file, commit or repository.
+pub fn head_text(dir: &Path, path: &str) -> Option<String> {
+    git(dir, &["show", &format!("HEAD:./{path}")]).ok()
+}
+
 /// Ignored entries of the working tree at `dir`, relative to it and in path
 /// order. A folder that is ignored as a whole is listed once, ending in `/`,
 /// without its contents, so large ones such as `node_modules` stay cheap.
@@ -76,6 +82,22 @@ mod tests {
         std::fs::write(repo.join("target/out"), "").unwrap();
 
         assert_eq!(files(repo).unwrap(), [".gitignore", "src/new.rs"]);
+    }
+
+    #[test]
+    fn reads_committed_text_only_for_committed_files() {
+        let temp = TempDir::new();
+        let repo = temp.path();
+        init_repo(repo);
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/a.rs"), "old\n").unwrap();
+        assert_eq!(head_text(repo, "src/a.rs"), None);
+        git(repo, &["add", "."]).unwrap();
+        git(repo, &["commit", "-q", "-m", "a"]).unwrap();
+        std::fs::write(repo.join("src/a.rs"), "new\n").unwrap();
+        std::fs::write(repo.join("b.rs"), "").unwrap();
+        assert_eq!(head_text(repo, "src/a.rs").as_deref(), Some("old\n"));
+        assert_eq!(head_text(repo, "b.rs"), None);
     }
 
     #[test]

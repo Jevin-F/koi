@@ -98,11 +98,19 @@ impl WorkspaceView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<FilesView> {
+        if let Some(view) = self.files_views.get(dir) {
+            return view.clone();
+        }
         let layout = self.files_layout.clone();
-        self.files_views
-            .entry(dir.to_owned())
-            .or_insert_with(|| cx.new(|cx| FilesView::new(dir.to_owned(), layout, window, cx)))
-            .clone()
+        let view = cx.new(|cx| {
+            let mut view = FilesView::new(dir.to_owned(), layout, window, cx);
+            if let Some(Ok(changes)) = self.changes.get(dir) {
+                view.set_changes(changes, cx);
+            }
+            view
+        });
+        self.files_views.insert(dir.to_owned(), view.clone());
+        view
     }
 
     /// Shows `panel`, or goes back to the terminal if it is already shown.

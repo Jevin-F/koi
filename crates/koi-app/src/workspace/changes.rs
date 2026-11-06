@@ -103,7 +103,12 @@ impl WorkspaceView {
                         view.update(cx, |view, cx| view.set_files(files.clone(), cx));
                     }
                     if let Some(view) = this.files_views.get(&tree) {
-                        view.update(cx, |view, cx| view.reload(cx));
+                        view.update(cx, |view, cx| {
+                            if let Ok(files) = &changes {
+                                view.set_changes(files, cx);
+                            }
+                            view.reload(cx);
+                        });
                     }
                     this.changes.insert(tree, changes);
                 }

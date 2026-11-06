@@ -3,6 +3,8 @@
 //! between the overview and the sessions opened so far.
 
 mod activity;
+mod change_badge;
+mod change_gutter;
 mod changes;
 mod changes_view;
 mod detached;

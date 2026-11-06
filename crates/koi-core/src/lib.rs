@@ -4,6 +4,7 @@
 
 mod activity;
 mod agent;
+pub mod change_marks;
 pub mod config;
 pub mod file_language;
 pub mod file_preview;
@@ -14,6 +15,7 @@ pub mod git;
 pub mod history;
 pub mod integration;
 pub mod layout;
+pub mod line_changes;
 pub mod opencode;
 mod paths;
 pub mod process_stop;

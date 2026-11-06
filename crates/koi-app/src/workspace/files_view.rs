@@ -14,12 +14,16 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, WindowExt, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+use koi_core::change_marks::ChangeMarks;
 use koi_core::file_language::language_for;
 use koi_core::file_preview::{Preview, preview_for};
 use koi_core::file_tabs::FileTabs;
 use koi_core::file_tree::{FileTree, TreeRow, ancestors};
+use koi_core::git::{self, ChangeKind, FileChange};
 use koi_core::project_files;
 
+use super::change_badge::change_badge;
+use super::change_gutter::ChangeGutter;
 use super::file_icon::{file_icon, folder_icon};
 use super::file_preview::{ImagePreview, MarkdownPreview};
 use super::layout::side_list;
@@ -56,12 +60,17 @@ struct TextFile {
     editor: Entity<EditorState>,
     /// The rendered Markdown shown instead of the editor, while it is open.
     preview: Option<MarkdownPreview>,
-    _events: Subscription,
+    gutter: Entity<ChangeGutter>,
+    _events: [Subscription; 2],
 }
 
 /// What reading an open file produced.
 enum Content {
-    Text(String),
+    Text {
+        text: String,
+        /// The committed version, when there is one.
+        head: Option<String>,
+    },
     Image {
         modified: Option<SystemTime>,
     },
@@ -97,6 +106,8 @@ pub struct FilesView {
     next_load_generation: u64,
     /// Width of the tree, shared by the files panels of all worktrees.
     layout: Entity<ResizableState>,
+    /// Git changes of the worktree, shown on the tree.
+    marks: ChangeMarks,
 }
 
 impl FilesView {
@@ -115,6 +126,7 @@ impl FilesView {
             tabs: FileTabs::default(),
             open: HashMap::new(),
             next_load_generation: 0,
+            marks: ChangeMarks::default(),
             layout,
         };
         this.reload(cx);
@@ -147,6 +159,13 @@ impl FilesView {
             .ok();
         })
         .detach();
+    }
+
+    /// Shows the worktree's git changes on the tree. Called before
+    /// [`Self::reload`], which compares open files with what git has.
+    pub fn set_changes(&mut self, changes: &[FileChange], cx: &mut Context<Self>) {
+        self.marks = ChangeMarks::new(changes);
+        cx.notify();
     }
 
     /// Opens `path`, expanding the folders above it.
@@ -222,23 +241,30 @@ impl FilesView {
     }
 
     fn text_file(&self, path: &str, window: &mut Window, cx: &mut Context<Self>) -> TextFile {
+        // Change marks are placed by line number, which folded lines would shift.
         let editor = cx.new(|cx| {
             EditorState::new(window, cx)
                 .language(language_for(path))
                 .line_number(true)
                 .soft_wrap(false)
+                .folding(false)
         });
+        let gutter = cx.new(|_| ChangeGutter::new(&editor));
         let watched_path = path.to_owned();
-        let events = cx.subscribe(&editor, move |this, _, event, cx| {
+        let watched_gutter = gutter.clone();
+        let edits = cx.subscribe(&editor, move |this, _, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.tabs.set_dirty(&watched_path, true);
+                watched_gutter.update(cx, |gutter, cx| gutter.edited(cx));
                 cx.notify();
             }
         });
+        let marks = cx.observe(&gutter, |_, _, cx| cx.notify());
         TextFile {
             editor,
             preview: None,
-            _events: events,
+            gutter,
+            _events: [edits, marks],
         }
     }
 
@@ -274,6 +300,7 @@ impl FilesView {
         let generation = self.next_load_generation;
         open.load_generation = generation;
         let is_image = matches!(open.view, FileView::Image(_));
+        let (dir, relative) = (self.dir.clone(), path.clone());
         let file = self.dir.join(&path);
         let task = cx.background_spawn(async move {
             let metadata = std::fs::metadata(&file).map_err(|error| error.to_string())?;
@@ -289,7 +316,11 @@ impl FilesView {
                 return Ok(Content::NotText);
             }
             let bytes = std::fs::read(&file).map_err(|error| error.to_string())?;
-            Ok(String::from_utf8(bytes).map_or(Content::NotText, Content::Text))
+            let Ok(text) = String::from_utf8(bytes) else {
+                return Ok(Content::NotText);
+            };
+            let head = git::head_text(&dir, &relative);
+            Ok(Content::Text { text, head })
         });
         let window = self.window;
         cx.spawn(async move |this, cx| {
@@ -314,6 +345,11 @@ impl FilesView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A file git does not know yet is new in every line.
+        let is_new = matches!(
+            self.marks.file(&path),
+            Some(ChangeKind::Untracked | ChangeKind::Added)
+        );
         let Some(open) = self.open.get_mut(&path) else {
             return;
         };
@@ -321,7 +357,7 @@ impl FilesView {
             return;
         }
         open.problem = match (content, &mut open.view) {
-            (Ok(Content::Text(source)), FileView::Text(text)) => {
+            (Ok(Content::Text { text: source, head }), FileView::Text(text)) => {
                 // Rewriting unchanged text would move the cursor back to the top.
                 let unchanged = text.editor.read(cx).value() == source;
                 if !unchanged {
@@ -331,6 +367,9 @@ impl FilesView {
                     text.editor
                         .update(cx, |editor, cx| editor.set_value(source, window, cx));
                 }
+                let base = head.or_else(|| is_new.then(String::new));
+                text.gutter
+                    .update(cx, |gutter, cx| gutter.set_base(base, cx));
                 None
             }
             (Ok(Content::Image { modified }), FileView::Image(image)) => {
@@ -414,6 +453,25 @@ impl FilesView {
         } else {
             file_icon(&row.name)
         };
+        let change = if row.is_dir {
+            self.marks.folder(&row.path)
+        } else {
+            self.marks.file(&row.path)
+        }
+        .map(|kind| change_badge(kind, theme));
+        let name_color = match change {
+            Some((_, color)) => Some(color),
+            None => row.ignored.then_some(theme.muted_foreground),
+        };
+        // Folders show only that something inside changed.
+        let badge = change.map(|(letter, color)| {
+            let badge = div().flex_none().text_color(color);
+            if row.is_dir {
+                badge.size_1p5().rounded_full().bg(color)
+            } else {
+                badge.text_xs().child(letter)
+            }
+        });
         let (path, is_dir) = (row.path.clone(), row.is_dir);
         h_flex()
             .id(("tree-row", ix))
@@ -443,11 +501,13 @@ impl FilesView {
             )
             .child(
                 div()
+                    .flex_1()
                     .min_w_0()
                     .truncate()
-                    .when(row.ignored, |name| name.text_color(theme.muted_foreground))
+                    .when_some(name_color, |name, color| name.text_color(color))
                     .child(row.name.clone()),
             )
+            .children(badge)
             .into_any_element()
     }
 
@@ -473,13 +533,15 @@ impl FilesView {
         let body = match (&open.problem, &open.view) {
             (Some(problem), _) => notice(problem.clone()),
             (None, FileView::Image(image)) => image.render(cx),
-            (None, FileView::Text(text)) => {
-                let editor = Editor::new(&text.editor).bordered(false).size_full();
-                match &text.preview {
-                    Some(preview) => preview.render(),
-                    None => editor.into_any_element(),
-                }
-            }
+            (None, FileView::Text(text)) => match &text.preview {
+                Some(preview) => preview.render(),
+                None => div()
+                    .relative()
+                    .size_full()
+                    .child(Editor::new(&text.editor).bordered(false).size_full())
+                    .child(text.gutter.read(cx).overlay(&text.editor, cx))
+                    .into_any_element(),
+            },
         };
         let previewing = open.text().map(|text| text.preview.is_some());
         let can_preview = open.problem.is_none() && preview_for(path) == Some(Preview::Markdown);

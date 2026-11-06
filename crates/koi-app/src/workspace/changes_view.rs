@@ -11,9 +11,10 @@ use gpui_kit::component::resizable::ResizableState;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, WindowExt, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use koi_core::git::{self, ChangeKind, DiffLine, FileChange, LineKind, Tracking};
+use koi_core::git::{self, DiffLine, FileChange, LineKind, Tracking};
 use rust_i18n::t;
 
+use super::change_badge::change_badge;
 use super::file_icon::file_icon;
 use super::layout::side_list;
 use crate::settings::code_font;
@@ -243,14 +244,7 @@ impl ChangesView {
     fn render_files(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let rows = self.files.iter().enumerate().map(|(ix, file)| {
-            let (letter, color) = match file.kind {
-                ChangeKind::Added => ("A", theme.success),
-                ChangeKind::Untracked => ("U", theme.success),
-                ChangeKind::Modified => ("M", theme.warning),
-                ChangeKind::Deleted => ("D", theme.danger),
-                ChangeKind::Renamed => ("R", theme.info),
-                ChangeKind::Conflicted => ("!", theme.danger),
-            };
+            let (letter, color) = change_badge(file.kind, theme);
             let (folder, name) = match file.path.rsplit_once('/') {
                 Some((folder, name)) => (folder.to_owned(), name.to_owned()),
                 None => (String::new(), file.path.clone()),
