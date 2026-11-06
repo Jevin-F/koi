@@ -16,6 +16,7 @@ pub mod history;
 pub mod integration;
 pub mod layout;
 pub mod line_changes;
+pub mod minimap;
 pub mod opencode;
 mod paths;
 pub mod process_stop;

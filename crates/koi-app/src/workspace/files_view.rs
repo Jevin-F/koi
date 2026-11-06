@@ -23,10 +23,12 @@ use koi_core::git::{self, ChangeKind, FileChange};
 use koi_core::project_files;
 
 use super::change_badge::change_badge;
-use super::change_gutter::ChangeGutter;
+use super::change_gutter::change_gutter;
 use super::file_icon::{file_icon, folder_icon};
 use super::file_preview::{ImagePreview, MarkdownPreview};
 use super::layout::side_list;
+use super::minimap::Minimap;
+use super::text_summary::TextSummary;
 use rust_i18n::t;
 
 pub const CONTEXT: &str = "Files";
@@ -60,7 +62,8 @@ struct TextFile {
     editor: Entity<EditorState>,
     /// The rendered Markdown shown instead of the editor, while it is open.
     preview: Option<MarkdownPreview>,
-    gutter: Entity<ChangeGutter>,
+    summary: Entity<TextSummary>,
+    minimap: Minimap,
     _events: [Subscription; 2],
 }
 
@@ -249,22 +252,23 @@ impl FilesView {
                 .soft_wrap(false)
                 .folding(false)
         });
-        let gutter = cx.new(|_| ChangeGutter::new(&editor));
+        let summary = cx.new(|_| TextSummary::new(&editor));
         let watched_path = path.to_owned();
-        let watched_gutter = gutter.clone();
+        let watched_summary = summary.clone();
         let edits = cx.subscribe(&editor, move |this, _, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.tabs.set_dirty(&watched_path, true);
-                watched_gutter.update(cx, |gutter, cx| gutter.edited(cx));
+                watched_summary.update(cx, |summary, cx| summary.edited(cx));
                 cx.notify();
             }
         });
-        let marks = cx.observe(&gutter, |_, _, cx| cx.notify());
+        let analyzed = cx.observe(&summary, |_, _, cx| cx.notify());
         TextFile {
             editor,
             preview: None,
-            gutter,
-            _events: [edits, marks],
+            summary,
+            minimap: Minimap::default(),
+            _events: [edits, analyzed],
         }
     }
 
@@ -368,8 +372,8 @@ impl FilesView {
                         .update(cx, |editor, cx| editor.set_value(source, window, cx));
                 }
                 let base = head.or_else(|| is_new.then(String::new));
-                text.gutter
-                    .update(cx, |gutter, cx| gutter.set_base(base, cx));
+                text.summary
+                    .update(cx, |summary, cx| summary.set_base(base, cx));
                 None
             }
             (Ok(Content::Image { modified }), FileView::Image(image)) => {
@@ -535,11 +539,22 @@ impl FilesView {
             (None, FileView::Image(image)) => image.render(cx),
             (None, FileView::Text(text)) => match &text.preview {
                 Some(preview) => preview.render(),
-                None => div()
-                    .relative()
+                None => h_flex()
                     .size_full()
-                    .child(Editor::new(&text.editor).bordered(false).size_full())
-                    .child(text.gutter.read(cx).overlay(&text.editor, cx))
+                    .child(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .child(Editor::new(&text.editor).bordered(false).size_full())
+                            .child(change_gutter(
+                                text.summary.read(cx).changes.clone(),
+                                &text.editor,
+                                cx,
+                            )),
+                    )
+                    .child(text.minimap.render(&text.summary, &text.editor, cx))
                     .into_any_element(),
             },
         };

@@ -16,6 +16,7 @@ mod files_view;
 mod hidden_projects;
 mod history;
 mod layout;
+mod minimap;
 mod opencode;
 mod overview;
 mod quick_open;
@@ -28,6 +29,7 @@ mod sidebar;
 mod split;
 mod status;
 mod tabs;
+mod text_summary;
 mod unseen;
 mod views;
 
