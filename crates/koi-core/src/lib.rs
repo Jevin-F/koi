@@ -6,6 +6,7 @@ mod activity;
 mod agent;
 pub mod config;
 pub mod file_language;
+pub mod file_preview;
 pub mod file_tabs;
 pub mod file_tree;
 mod fuzzy;

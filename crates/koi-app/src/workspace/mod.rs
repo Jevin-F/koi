@@ -9,6 +9,7 @@ mod detached;
 mod dialogs;
 mod drag;
 mod file_icon;
+mod file_preview;
 mod files_view;
 mod hidden_projects;
 mod history;

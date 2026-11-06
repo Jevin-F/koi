@@ -2,8 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::time::SystemTime;
 
-use gpui_kit::base::Disableable;
+use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_kit::component::input::{Editor, EditorState, InputEvent};
 use gpui_kit::component::notification::Notification;
@@ -14,11 +15,13 @@ use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, WindowExt, h_fle
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use koi_core::file_language::language_for;
+use koi_core::file_preview::{Preview, preview_for};
 use koi_core::file_tabs::FileTabs;
 use koi_core::file_tree::{FileTree, TreeRow, ancestors};
 use koi_core::project_files;
 
 use super::file_icon::{file_icon, folder_icon};
+use super::file_preview::{ImagePreview, MarkdownPreview};
 use super::layout::side_list;
 use rust_i18n::t;
 
@@ -29,16 +32,58 @@ const ROW_HEIGHT: Pixels = px(24.);
 const INDENT: Pixels = px(12.);
 /// Larger files are not opened; the editor is meant for quick looks and edits.
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
+/// Larger pictures are not decoded, to keep memory use in check.
+const MAX_IMAGE_SIZE: u64 = 32 * 1024 * 1024;
 
 actions!(files, [Save]);
 
-/// The file shown in the editor.
+/// The file shown in a tab.
 struct OpenFile {
-    editor: Entity<EditorState>,
+    view: FileView,
     /// Why the file is not shown, such as being binary.
     problem: Option<SharedString>,
     load_generation: u64,
+}
+
+/// How an open file is presented.
+enum FileView {
+    Text(TextFile),
+    Image(ImagePreview),
+}
+
+/// A file edited as text.
+struct TextFile {
+    editor: Entity<EditorState>,
+    /// The rendered Markdown shown instead of the editor, while it is open.
+    preview: Option<MarkdownPreview>,
     _events: Subscription,
+}
+
+/// What reading an open file produced.
+enum Content {
+    Text(String),
+    Image {
+        modified: Option<SystemTime>,
+    },
+    /// Binary or too large for the editor.
+    NotText,
+    ImageTooLarge,
+}
+
+impl OpenFile {
+    fn text(&self) -> Option<&TextFile> {
+        match &self.view {
+            FileView::Text(text) => Some(text),
+            FileView::Image(_) => None,
+        }
+    }
+
+    fn text_mut(&mut self) -> Option<&mut TextFile> {
+        match &mut self.view {
+            FileView::Text(text) => Some(text),
+            FileView::Image(_) => None,
+        }
+    }
 }
 
 pub struct FilesView {
@@ -80,15 +125,18 @@ impl FilesView {
     /// Called when files in the worktree change.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let dir = self.dir.clone();
-        let task = cx.background_spawn(async move { project_files::files(&dir) });
+        let expanded = self.expanded.clone();
+        let task = cx.background_spawn(async move { project_files::tree(&dir, &expanded) });
         cx.spawn(async move |this, cx| {
             // An unreadable list keeps showing the previous one.
-            let Ok(files) = task.await else {
+            let Ok(tree) = task.await else {
                 return;
             };
             this.update(cx, |this, cx| {
-                this.tree = FileTree::new(files.iter().map(String::as_str));
+                this.tree = tree;
                 this.rows = this.tree.rows(&this.expanded);
+                // Folders opened while the list was read.
+                this.read_unread(cx);
                 for path in this.tabs.paths().to_vec() {
                     if !this.tabs.is_dirty(&path) {
                         this.load_content(path, cx);
@@ -105,6 +153,7 @@ impl FilesView {
     pub fn reveal(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         self.expanded.extend(ancestors(&path));
         self.rows = self.tree.rows(&self.expanded);
+        self.read_unread(cx);
         self.open_file(path, window, cx);
     }
 
@@ -113,7 +162,40 @@ impl FilesView {
             self.expanded.insert(path.to_owned());
         }
         self.rows = self.tree.rows(&self.expanded);
+        self.read_unread(cx);
         cx.notify();
+    }
+
+    /// Reads the contents of opened ignored folders off the main thread,
+    /// then those of folders that reveals as open in turn.
+    fn read_unread(&mut self, cx: &mut Context<Self>) {
+        let unread = self.tree.unread(&self.expanded);
+        if unread.is_empty() {
+            return;
+        }
+        let dir = self.dir.clone();
+        let task = cx.background_spawn(async move {
+            unread
+                .into_iter()
+                .map(|folder| {
+                    let entries = project_files::read_folder(&dir, &folder);
+                    (folder, entries)
+                })
+                .collect::<Vec<_>>()
+        });
+        cx.spawn(async move |this, cx| {
+            let read = task.await;
+            this.update(cx, |this, cx| {
+                for (folder, entries) in read {
+                    this.tree.fill(&folder, entries);
+                }
+                this.rows = this.tree.rows(&this.expanded);
+                this.read_unread(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Opens or selects `path` without losing the state of other tabs.
@@ -122,30 +204,65 @@ impl FilesView {
             cx.notify();
             return;
         }
+        let view = if preview_for(&path) == Some(Preview::Image) {
+            FileView::Image(ImagePreview::new(self.dir.join(&path), cx))
+        } else {
+            FileView::Text(self.text_file(&path, window, cx))
+        };
+        self.open.insert(
+            path.clone(),
+            OpenFile {
+                view,
+                problem: Some(t!("files.loading").into()),
+                load_generation: 0,
+            },
+        );
+        cx.notify();
+        self.load_content(path, cx);
+    }
+
+    fn text_file(&self, path: &str, window: &mut Window, cx: &mut Context<Self>) -> TextFile {
         let editor = cx.new(|cx| {
             EditorState::new(window, cx)
-                .language(language_for(&path))
+                .language(language_for(path))
                 .line_number(true)
                 .soft_wrap(false)
         });
-        let watched_path = path.clone();
+        let watched_path = path.to_owned();
         let events = cx.subscribe(&editor, move |this, _, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.tabs.set_dirty(&watched_path, true);
                 cx.notify();
             }
         });
-        self.open.insert(
-            path.clone(),
-            OpenFile {
-                editor,
-                problem: Some(t!("files.loading").into()),
-                load_generation: 0,
-                _events: events,
-            },
-        );
+        TextFile {
+            editor,
+            preview: None,
+            _events: events,
+        }
+    }
+
+    /// Switches the active Markdown file between its source and its rendered form.
+    fn toggle_preview(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self
+            .tabs
+            .active()
+            .filter(|path| preview_for(path) == Some(Preview::Markdown))
+        else {
+            return;
+        };
+        let document = self.dir.join(path);
+        let Some(text) = self.open.get_mut(path).and_then(OpenFile::text_mut) else {
+            return;
+        };
+        text.preview = match text.preview {
+            Some(_) => None,
+            None => {
+                let source = text.editor.read(cx).value();
+                Some(MarkdownPreview::new(document, &source, cx))
+            }
+        };
         cx.notify();
-        self.load_content(path, cx);
     }
 
     /// Reads an open file without changing the selected tab.
@@ -156,20 +273,27 @@ impl FilesView {
         self.next_load_generation += 1;
         let generation = self.next_load_generation;
         open.load_generation = generation;
+        let is_image = matches!(open.view, FileView::Image(_));
         let file = self.dir.join(&path);
         let task = cx.background_spawn(async move {
-            let size = std::fs::metadata(&file)
-                .map_err(|error| error.to_string())?
-                .len();
-            if size > MAX_FILE_SIZE {
-                return Ok(None);
+            let metadata = std::fs::metadata(&file).map_err(|error| error.to_string())?;
+            if is_image {
+                if metadata.len() > MAX_IMAGE_SIZE {
+                    return Ok(Content::ImageTooLarge);
+                }
+                // The picture itself is decoded off the main thread while drawing.
+                let modified = metadata.modified().ok();
+                return Ok(Content::Image { modified });
+            }
+            if metadata.len() > MAX_FILE_SIZE {
+                return Ok(Content::NotText);
             }
             let bytes = std::fs::read(&file).map_err(|error| error.to_string())?;
-            Ok(String::from_utf8(bytes).ok())
+            Ok(String::from_utf8(bytes).map_or(Content::NotText, Content::Text))
         });
         let window = self.window;
         cx.spawn(async move |this, cx| {
-            let content: Result<Option<String>, String> = task.await;
+            let content: Result<Content, String> = task.await;
             window
                 .update(cx, |_, window, cx| {
                     this.update(cx, |this, cx| {
@@ -186,7 +310,7 @@ impl FilesView {
         &mut self,
         path: String,
         generation: u64,
-        content: Result<Option<String>, String>,
+        content: Result<Content, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -196,18 +320,26 @@ impl FilesView {
         if self.tabs.is_dirty(&path) || open.load_generation != generation {
             return;
         }
-        open.problem = match content {
-            Ok(Some(text)) => {
+        open.problem = match (content, &mut open.view) {
+            (Ok(Content::Text(source)), FileView::Text(text)) => {
                 // Rewriting unchanged text would move the cursor back to the top.
-                let unchanged = open.editor.read(cx).value() == text;
+                let unchanged = text.editor.read(cx).value() == source;
                 if !unchanged {
-                    open.editor
-                        .update(cx, |editor, cx| editor.set_value(text, window, cx));
+                    if let Some(preview) = &text.preview {
+                        preview.set_source(&source, cx);
+                    }
+                    text.editor
+                        .update(cx, |editor, cx| editor.set_value(source, window, cx));
                 }
                 None
             }
-            Ok(None) => Some(t!("files.not_text").into()),
-            Err(error) => Some(t!("files.unreadable", error = error).into()),
+            (Ok(Content::Image { modified }), FileView::Image(image)) => {
+                image.refresh(modified, window, cx);
+                None
+            }
+            (Ok(Content::ImageTooLarge), _) => Some(t!("files.image_too_large").into()),
+            (Ok(_), _) => Some(t!("files.not_text").into()),
+            (Err(error), _) => Some(t!("files.unreadable", error = error).into()),
         };
         self.tabs.set_dirty(&path, false);
         cx.notify();
@@ -217,7 +349,12 @@ impl FilesView {
         let Some(path) = self.tabs.active().filter(|path| self.tabs.is_dirty(path)) else {
             return;
         };
-        let Some(open) = self.open.get(path).filter(|open| open.problem.is_none()) else {
+        let Some(open) = self
+            .open
+            .get(path)
+            .filter(|open| open.problem.is_none())
+            .and_then(OpenFile::text)
+        else {
             return;
         };
         let text = open.editor.read(cx).value();
@@ -304,7 +441,13 @@ impl FilesView {
                     .flex_none()
                     .text_color(theme.muted_foreground),
             )
-            .child(div().min_w_0().truncate().child(row.name.clone()))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .when(row.ignored, |name| name.text_color(theme.muted_foreground))
+                    .child(row.name.clone()),
+            )
             .into_any_element()
     }
 
@@ -327,13 +470,19 @@ impl FilesView {
         let Some(open) = self.open.get(path) else {
             return notice(t!("files.pick").into());
         };
-        let body = match &open.problem {
-            Some(problem) => notice(problem.clone()),
-            None => Editor::new(&open.editor)
-                .bordered(false)
-                .size_full()
-                .into_any_element(),
+        let body = match (&open.problem, &open.view) {
+            (Some(problem), _) => notice(problem.clone()),
+            (None, FileView::Image(image)) => image.render(cx),
+            (None, FileView::Text(text)) => {
+                let editor = Editor::new(&text.editor).bordered(false).size_full();
+                match &text.preview {
+                    Some(preview) => preview.render(),
+                    None => editor.into_any_element(),
+                }
+            }
         };
+        let previewing = open.text().map(|text| text.preview.is_some());
+        let can_preview = open.problem.is_none() && preview_for(path) == Some(Preview::Markdown);
         let tabs: Vec<AnyElement> = self
             .tabs
             .paths()
@@ -408,6 +557,26 @@ impl FilesView {
                             .text_color(theme.muted_foreground)
                             .child(self.tabs.paths().len().to_string()),
                     )
+                    .when_some(previewing.filter(|_| can_preview), |bar, previewing| {
+                        let (icon, tooltip) = if previewing {
+                            (
+                                gpui_kit::assets::IconName::FileCode,
+                                t!("files.hide_preview"),
+                            )
+                        } else {
+                            (gpui_kit::assets::IconName::Eye, t!("files.show_preview"))
+                        };
+                        bar.child(
+                            Button::new("preview-file")
+                                .ghost()
+                                .xsmall()
+                                .icon(icon)
+                                .tooltip(tooltip)
+                                .selected(previewing)
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _, _, cx| this.toggle_preview(cx))),
+                        )
+                    })
                     .child(
                         Button::new("save-file")
                             .ghost()
@@ -457,7 +626,7 @@ impl Render for FilesView {
 
 #[cfg(test)]
 mod tests {
-    use super::FilesView;
+    use super::{FileView, FilesView};
     use gpui_kit::component::resizable::ResizableState;
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{AppContext, TestAppContext, WindowOptions};
@@ -490,22 +659,41 @@ mod tests {
             assert_eq!(files.tabs.paths(), ["first.rs", "second.py"]);
             assert_eq!(files.tabs.active(), Some("second.py"));
             assert_eq!(
-                files.open["first.rs"].editor.read(cx).value(),
+                files.open["first.rs"]
+                    .text()
+                    .unwrap()
+                    .editor
+                    .read(cx)
+                    .value(),
                 "fn first() {}\n"
             );
             assert_eq!(
-                files.open["second.py"].editor.read(cx).value(),
+                files.open["second.py"]
+                    .text()
+                    .unwrap()
+                    .editor
+                    .read(cx)
+                    .value(),
                 "print('second')\n"
             );
             assert_eq!(
-                files.open["first.rs"].editor.read(cx).language_name(),
+                files.open["first.rs"]
+                    .text()
+                    .unwrap()
+                    .editor
+                    .read(cx)
+                    .language_name(),
                 "rust"
             );
         });
         cx.update_window(window, |_, window, cx| {
             view.update(cx, |view, cx| view.open_file("first.rs".into(), window, cx));
             window.render_frame(cx);
-            let editor = view.read(cx).open["first.rs"].editor.clone();
+            let editor = view.read(cx).open["first.rs"]
+                .text()
+                .unwrap()
+                .editor
+                .clone();
             editor.update(cx, |editor, cx| editor.focus(window, cx));
             window.render_frame(cx);
             window.input("edited", cx);
@@ -525,16 +713,68 @@ mod tests {
             assert!(
                 files.tabs.is_dirty("first.rs"),
                 "{}",
-                files.open["first.rs"].editor.read(cx).value()
+                files.open["first.rs"]
+                    .text()
+                    .unwrap()
+                    .editor
+                    .read(cx)
+                    .value()
             );
             assert!(
                 files.open["first.rs"]
+                    .text()
+                    .unwrap()
                     .editor
                     .read(cx)
                     .value()
                     .contains("edited")
             );
         });
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn pictures_open_without_an_editor_and_markdown_toggles_its_preview(cx: &mut TestAppContext) {
+        let dir = std::env::temp_dir().join(format!("koi-preview-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("logo.png"), [0u8; 8]).unwrap();
+        std::fs::write(dir.join("notes.md"), "# Notes\n").unwrap();
+        std::fs::write(dir.join("main.rs"), "fn main() {}\n").unwrap();
+
+        let (window, view) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+                let layout = cx.new(|_| ResizableState::default());
+                cx.new(|cx| FilesView::new(dir.clone(), layout, window, cx))
+            })
+            .unwrap()
+        });
+        cx.update_window(window, |_, window, cx| {
+            view.update(cx, |view, cx| view.open_file("logo.png".into(), window, cx));
+            view.update(cx, |view, cx| view.open_file("notes.md".into(), window, cx));
+        })
+        .unwrap();
+        cx.run_until_parked();
+        let previewing = |cx: &mut TestAppContext, path: &str| {
+            cx.update(|cx| view.read(cx).open[path].text().unwrap().preview.is_some())
+        };
+        cx.update(|cx| {
+            let image = &view.read(cx).open["logo.png"];
+            assert!(matches!(image.view, FileView::Image(_)));
+            assert!(image.problem.is_none());
+        });
+        view.update(cx, |view, cx| view.toggle_preview(cx));
+        assert!(previewing(cx, "notes.md"));
+        view.update(cx, |view, cx| view.toggle_preview(cx));
+        assert!(!previewing(cx, "notes.md"));
+
+        cx.update_window(window, |_, window, cx| {
+            view.update(cx, |view, cx| view.open_file("main.rs".into(), window, cx));
+        })
+        .unwrap();
+        cx.run_until_parked();
+        view.update(cx, |view, cx| view.toggle_preview(cx));
+        assert!(!previewing(cx, "main.rs"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

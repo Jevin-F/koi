@@ -30,6 +30,30 @@ pub fn files(dir: &Path) -> Result<Vec<String>> {
     Ok(files)
 }
 
+/// Ignored entries of the working tree at `dir`, relative to it and in path
+/// order. A folder that is ignored as a whole is listed once, ending in `/`,
+/// without its contents, so large ones such as `node_modules` stay cheap.
+pub fn ignored(dir: &Path) -> Result<Vec<String>> {
+    let output = git(
+        dir,
+        &[
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+        ],
+    )?;
+    let mut entries: Vec<String> = output
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect();
+    entries.sort();
+    Ok(entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,5 +76,21 @@ mod tests {
         std::fs::write(repo.join("target/out"), "").unwrap();
 
         assert_eq!(files(repo).unwrap(), [".gitignore", "src/new.rs"]);
+    }
+
+    #[test]
+    fn lists_ignored_files_and_whole_ignored_folders_once() {
+        let temp = TempDir::new();
+        let repo = temp.path();
+        init_repo(repo);
+        std::fs::write(repo.join(".gitignore"), "target/\n.env\n*.log\n").unwrap();
+        std::fs::write(repo.join(".env"), "").unwrap();
+        std::fs::create_dir_all(repo.join("target/debug")).unwrap();
+        std::fs::write(repo.join("target/debug/out"), "").unwrap();
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/main.rs"), "").unwrap();
+        std::fs::write(repo.join("src/run.log"), "").unwrap();
+
+        assert_eq!(ignored(repo).unwrap(), [".env", "src/run.log", "target/"]);
     }
 }

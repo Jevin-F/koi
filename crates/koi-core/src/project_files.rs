@@ -1,10 +1,12 @@
 //! The files shown for a project directory: in a git repository, those git
 //! tracks or would offer to track; in a plain folder, every file found.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::Path;
 
+use crate::file_tree::{FileTree, FolderEntry};
 use crate::git;
 
 /// Most files listed for a plain folder, so that adding a very large one
@@ -19,6 +21,46 @@ pub fn files(dir: &Path) -> Result<Vec<String>, String> {
     } else {
         folder_files(dir, MAX_FOLDER_FILES).map_err(|error| error.to_string())
     }
+}
+
+/// The tree of `dir`, also showing what git ignores, with the contents of
+/// ignored folders in `expanded` read from disk. Ignored folders that stay
+/// collapsed are never walked.
+pub fn tree(dir: &Path, expanded: &HashSet<String>) -> Result<FileTree, String> {
+    let mut tree = FileTree::new(files(dir)?.iter().map(String::as_str));
+    // A failed listing of ignored entries only leaves them out.
+    if git::is_repository(dir)
+        && let Ok(ignored) = git::ignored(dir)
+    {
+        tree.add_ignored(ignored.iter().map(String::as_str));
+    }
+    loop {
+        let unread = tree.unread(expanded);
+        if unread.is_empty() {
+            return Ok(tree);
+        }
+        for folder in unread {
+            let entries = read_folder(dir, &folder);
+            tree.fill(&folder, entries);
+        }
+    }
+}
+
+/// The entries directly inside `folder` of `dir`, without `.git`. An
+/// unreadable folder reads as empty.
+pub fn read_folder(dir: &Path, folder: &str) -> Vec<FolderEntry> {
+    let Ok(entries) = fs::read_dir(dir.join(folder)) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            // Following a link here is safe: only folders the user opens are read.
+            let is_dir = entry.path().is_dir();
+            (name != ".git").then_some(FolderEntry { name, is_dir })
+        })
+        .collect()
 }
 
 /// Walks `dir` for at most `limit` files. Symbolic links to folders are not
@@ -108,6 +150,71 @@ mod tests {
     fn a_missing_folder_is_an_error() {
         let temp = TempDir::new();
         assert!(files(&temp.path().join("missing")).is_err());
+    }
+
+    #[test]
+    fn the_tree_reads_only_expanded_ignored_folders() {
+        let temp = TempDir::new();
+        let root = temp.path();
+        init_repo(root);
+        fs::write(root.join(".gitignore"), "node_modules/\n.env\n").unwrap();
+        for path in [
+            "src/main.rs",
+            ".env",
+            "node_modules/react/index.js",
+            "node_modules/a.txt",
+        ] {
+            write(root, path);
+        }
+        let mut expanded = HashSet::new();
+        let names = |tree: &FileTree, expanded: &HashSet<String>| -> Vec<(String, bool)> {
+            tree.rows(expanded)
+                .into_iter()
+                .map(|row| (row.path, row.ignored))
+                .collect()
+        };
+        let collapsed = tree(root, &expanded).unwrap();
+        assert_eq!(
+            names(&collapsed, &expanded),
+            [
+                ("node_modules".to_owned(), true),
+                ("src".to_owned(), false),
+                (".env".to_owned(), true),
+                (".gitignore".to_owned(), false),
+            ]
+        );
+
+        expanded.extend(["node_modules".to_owned(), "node_modules/react".to_owned()]);
+        let open = tree(root, &expanded).unwrap();
+        assert!(open.unread(&expanded).is_empty());
+        let paths: Vec<String> = names(&open, &expanded)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert_eq!(
+            paths[..4],
+            [
+                "node_modules",
+                "node_modules/react",
+                "node_modules/react/index.js",
+                "node_modules/a.txt"
+            ]
+        );
+    }
+
+    #[test]
+    fn reading_a_folder_skips_git_metadata() {
+        let temp = TempDir::new();
+        write(temp.path(), "lib/.git/HEAD");
+        write(temp.path(), "lib/x.rs");
+        let entries = read_folder(temp.path(), "lib");
+        assert_eq!(
+            entries,
+            [FolderEntry {
+                name: "x.rs".into(),
+                is_dir: false
+            }]
+        );
     }
 
     #[test]

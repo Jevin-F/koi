@@ -9,7 +9,7 @@ mod worktree;
 
 pub use branch::{Branch, branches, is_valid_branch_name};
 pub use diff::{DiffLine, LineKind, file_diff};
-pub use files::files;
+pub use files::{files, ignored};
 pub use status::{ChangeKind, FileChange, changes, has_uncommitted_changes};
 pub use sync::{Tracking, commit_all, push, tracking};
 pub use worktree::{Worktree, add_worktree, remove_worktree, worktrees};

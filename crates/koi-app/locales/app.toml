@@ -270,6 +270,22 @@ zh-CN = "仍有未保存的文件，退出 Koi？"
 en = "This file is binary or larger than 2 MB, so it is not shown."
 zh-CN = "这是二进制文件或超过 2 MB，不在这里显示。"
 
+[files.image_too_large]
+en = "This image is larger than 32 MB, so it is not shown."
+zh-CN = "这张图片超过 32 MB，不在这里显示。"
+
+[files.image_unreadable]
+en = "This image could not be decoded."
+zh-CN = "无法解码这张图片。"
+
+[files.show_preview]
+en = "Open preview"
+zh-CN = "打开预览"
+
+[files.hide_preview]
+en = "Show source"
+zh-CN = "显示源码"
+
 [files.unreadable]
 en = "Could not read the file: %{error}"
 zh-CN = "无法读取文件：%{error}"
