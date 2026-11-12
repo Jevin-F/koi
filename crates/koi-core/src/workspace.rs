@@ -139,20 +139,53 @@ impl Workspace {
         true
     }
 
-    /// Hides a project from the sidebar or shows it again; returns whether
-    /// anything changed.
+    /// Hides a project from the sidebar and the tab bar or shows it again;
+    /// returns whether anything changed. A session of a newly hidden project
+    /// stops being shown: the most recently shown visible tab takes its
+    /// place, or else the overview.
     pub fn set_project_hidden(&mut self, root: &Path, hidden: bool) -> bool {
         match self
             .projects
             .iter_mut()
             .find(|project| project.root == root)
         {
-            Some(project) if project.hidden != hidden => {
-                project.hidden = hidden;
-                true
-            }
-            _ => false,
+            Some(project) if project.hidden != hidden => project.hidden = hidden,
+            _ => return false,
         }
+        if self.active.is_some_and(|id| self.is_hidden(id)) {
+            self.active = self.recent.iter().copied().find(|&id| !self.is_hidden(id));
+        }
+        // The split never shows a hidden session, nor the one now active.
+        if self.split.is_some_and(|split| {
+            self.is_hidden(split.session) || self.active == Some(split.session)
+        }) {
+            self.split = None;
+        }
+        true
+    }
+
+    fn project_hidden(&self, root: &Path) -> bool {
+        self.projects
+            .iter()
+            .any(|project| project.hidden && project.root == root)
+    }
+
+    /// Whether session `id` belongs to a hidden project.
+    fn is_hidden(&self, id: SessionId) -> bool {
+        self.session(id)
+            .is_some_and(|session| self.project_hidden(&session.project))
+    }
+
+    /// Tabs shown in the tab bar, with their position among all tabs: those
+    /// of projects that are not hidden, and the active one, which may have
+    /// been opened from elsewhere.
+    pub fn shown_tabs(&self) -> Vec<(usize, SessionId)> {
+        self.tabs
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|&(_, id)| self.active == Some(id) || !self.is_hidden(id))
+            .collect()
     }
 
     /// Collapses an expanded project in the sidebar or expands a collapsed
@@ -173,12 +206,9 @@ impl Workspace {
 
     /// Sessions of projects that are not hidden, in creation order.
     pub fn shown_sessions(&self) -> impl Iterator<Item = &SessionRecord> {
-        self.sessions.iter().filter(|session| {
-            !self
-                .projects
-                .iter()
-                .any(|project| project.hidden && project.root == session.project)
-        })
+        self.sessions
+            .iter()
+            .filter(|session| !self.project_hidden(&session.project))
     }
 
     /// Shows every hidden project; returns whether any was hidden.
@@ -638,6 +668,51 @@ mod tests {
         workspace.set_project_hidden(Path::new("/c"), true);
         assert!(workspace.show_all_projects());
         assert!(workspace.projects.iter().all(|project| !project.hidden));
+    }
+
+    #[test]
+    fn hiding_a_project_takes_its_tabs_out_of_the_tab_bar() {
+        let mut workspace = Workspace::default();
+        workspace.add_project("/a".into());
+        workspace.add_project("/b".into());
+        let a1 = workspace.add_session(Path::new("/a"), "/a".into(), "pi", Vec::new());
+        let b = workspace.add_session(Path::new("/b"), "/b".into(), "pi", Vec::new());
+        let a2 = workspace.add_session(Path::new("/a"), "/a".into(), "pi", Vec::new());
+        for id in [a1, b, a2] {
+            workspace.open(id);
+        }
+        assert!(workspace.split(b, SplitSide::Right));
+
+        assert!(workspace.set_project_hidden(Path::new("/a"), true));
+        assert_eq!(workspace.shown_tabs(), [(1, b)]);
+        assert_eq!(workspace.active, Some(b), "a shown tab takes over");
+        assert_eq!(workspace.split, None);
+        assert_eq!(
+            workspace.tabs,
+            [a1, b, a2],
+            "tabs come back when shown again"
+        );
+
+        workspace.open(a1);
+        assert_eq!(
+            workspace.shown_tabs(),
+            [(0, a1), (1, b)],
+            "a hidden session opened from elsewhere is shown while active"
+        );
+        assert!(workspace.set_project_hidden(Path::new("/a"), false));
+        assert_eq!(workspace.shown_tabs(), [(0, a1), (1, b), (2, a2)]);
+    }
+
+    #[test]
+    fn hiding_the_only_shown_project_leaves_the_overview() {
+        let mut workspace = Workspace::default();
+        workspace.add_project("/a".into());
+        let a = workspace.add_session(Path::new("/a"), "/a".into(), "pi", Vec::new());
+        workspace.open(a);
+        assert!(workspace.set_project_hidden(Path::new("/a"), true));
+        assert_eq!(workspace.active, None);
+        assert!(workspace.shown_tabs().is_empty());
+        assert!(!workspace.set_project_hidden(Path::new("/a"), true));
     }
 
     #[test]

@@ -53,10 +53,9 @@ impl WorkspaceView {
             .child(t!("tabs.overview"));
         let sessions: Vec<AnyElement> = self
             .workspace
-            .tabs
-            .iter()
-            .enumerate()
-            .filter_map(|(ix, &id)| Some(self.render_tab(ix, self.workspace.session(id)?, cx)))
+            .shown_tabs()
+            .into_iter()
+            .filter_map(|(ix, id)| Some(self.render_tab(ix, self.workspace.session(id)?, cx)))
             .collect();
         let switch = self.render_view_switch(cx);
         let theme = cx.theme();

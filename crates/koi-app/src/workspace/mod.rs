@@ -647,7 +647,13 @@ impl WorkspaceView {
     }
 
     fn step_tab(&mut self, steps: isize, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(id) = cycle(&self.workspace.tabs, self.workspace.active, steps) {
+        let shown: Vec<SessionId> = self
+            .workspace
+            .shown_tabs()
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        if let Some(id) = cycle(&shown, self.workspace.active, steps) {
             self.open(id, window, cx);
         }
     }
@@ -661,7 +667,7 @@ impl WorkspaceView {
     }
 
     fn select_tab(&mut self, action: &SelectTab, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(&id) = self.workspace.tabs.get(action.0) {
+        if let Some(&(_, id)) = self.workspace.shown_tabs().get(action.0) {
             self.open(id, window, cx);
         }
     }

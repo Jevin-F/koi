@@ -1,5 +1,6 @@
-//! Hiding projects from the sidebar. Their sessions keep running and stay in
-//! the tabs, the overview and quick open; the sidebar's menu shows them again.
+//! Hiding projects from the sidebar, the tab bar, the overview and the
+//! running count. Their sessions keep running and stay in quick open; the
+//! sidebar's menu shows them again.
 
 use std::path::{Path, PathBuf};
 
