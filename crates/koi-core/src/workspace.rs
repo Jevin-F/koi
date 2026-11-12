@@ -291,6 +291,20 @@ impl Workspace {
         self.name_by_default(id, (!title.is_empty()).then_some(title))
     }
 
+    /// Uses the title the agent gave the conversation, replacing a name taken
+    /// from a message, unless the user named the session.
+    pub fn name_after_agent(&mut self, id: SessionId, title: &str) -> bool {
+        let title = session_label::bounded(title.trim());
+        let Some(session) = self.sessions.iter_mut().find(|session| session.id == id) else {
+            return false;
+        };
+        if session.named_by_user || title.is_empty() || session.label.as_deref() == Some(&title) {
+            return false;
+        }
+        session.label = Some(title);
+        true
+    }
+
     fn name_by_default(&mut self, id: SessionId, label: Option<String>) -> bool {
         let Some(session) = self.sessions.iter_mut().find(|session| session.id == id) else {
             return false;
@@ -658,19 +672,6 @@ mod tests {
     }
 
     #[test]
-    fn showing_all_projects_reveals_every_hidden_one() {
-        let mut workspace = Workspace::default();
-        for root in ["/a", "/b", "/c"] {
-            workspace.add_project(root.into());
-        }
-        assert!(!workspace.show_all_projects());
-        workspace.set_project_hidden(Path::new("/a"), true);
-        workspace.set_project_hidden(Path::new("/c"), true);
-        assert!(workspace.show_all_projects());
-        assert!(workspace.projects.iter().all(|project| !project.hidden));
-    }
-
-    #[test]
     fn hiding_a_project_takes_its_tabs_out_of_the_tab_bar() {
         let mut workspace = Workspace::default();
         workspace.add_project("/a".into());
@@ -713,6 +714,19 @@ mod tests {
         assert_eq!(workspace.active, None);
         assert!(workspace.shown_tabs().is_empty());
         assert!(!workspace.set_project_hidden(Path::new("/a"), true));
+    }
+
+    #[test]
+    fn showing_all_projects_reveals_every_hidden_one() {
+        let mut workspace = Workspace::default();
+        for root in ["/a", "/b", "/c"] {
+            workspace.add_project(root.into());
+        }
+        assert!(!workspace.show_all_projects());
+        workspace.set_project_hidden(Path::new("/a"), true);
+        workspace.set_project_hidden(Path::new("/c"), true);
+        assert!(workspace.show_all_projects());
+        assert!(workspace.projects.iter().all(|project| !project.hidden));
     }
 
     #[test]
@@ -1044,6 +1058,24 @@ mod tests {
         assert!(workspace.rename_session(ids[0], "  "));
         assert_eq!(workspace.session(ids[0]).unwrap().label, None);
         assert!(!workspace.rename_session(SessionId(999), "missing"));
+    }
+
+    #[test]
+    fn the_agents_title_replaces_a_prompt_name_but_not_a_manual_one() {
+        let (mut workspace, ids) = workspace_with_sessions(1);
+        let label = |workspace: &Workspace| workspace.session(ids[0]).unwrap().label.clone();
+        assert!(workspace.auto_name_session(ids[0], "Fix the colors"));
+        assert!(workspace.name_after_agent(ids[0], "Fix chart colors"));
+        assert_eq!(label(&workspace).as_deref(), Some("Fix chart colors"));
+        assert!(!workspace.name_after_agent(ids[0], "Fix chart colors"));
+        assert!(!workspace.name_after_agent(ids[0], "  "));
+        assert!(!workspace.auto_name_session(ids[0], "Next prompt"));
+        assert!(workspace.name_after_agent(ids[0], "Renamed in the agent"));
+        assert_eq!(label(&workspace).as_deref(), Some("Renamed in the agent"));
+
+        workspace.rename_session(ids[0], "My task");
+        assert!(!workspace.name_after_agent(ids[0], "Agent title"));
+        assert_eq!(label(&workspace).as_deref(), Some("My task"));
     }
 
     #[test]

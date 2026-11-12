@@ -61,8 +61,14 @@ impl WorkspaceView {
         };
         for path in watcher.take_changed() {
             if let Some(id) = AppPaths::session_of_resume_file(&path) {
-                if apply_resume(&mut self.workspace, &self.agents, id, &path) {
+                let resumed = apply_resume(&mut self.workspace, &self.agents, id, &path);
+                // Codex may have titled or renamed the conversation since.
+                let renamed = self.name_after_agent_title(id);
+                if resumed || renamed {
                     self.persist(window, cx);
+                }
+                if renamed {
+                    cx.notify();
                 }
                 continue;
             }

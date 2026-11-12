@@ -40,6 +40,12 @@ pub(super) fn thread_held(home: &Path, id: &str) -> bool {
         .is_ok_and(|file| matches!(file.try_lock_shared(), Err(TryLockError::WouldBlock)))
 }
 
+/// The latest title of conversation `id`, which Codex gives it soon after
+/// the first prompt and changes on `/rename`.
+pub(super) fn thread_name(home: &Path, id: &str) -> Option<String> {
+    thread_names(&home.join(".codex/session_index.jsonl")).remove(id)
+}
+
 /// Session titles by id; later lines rename earlier ones.
 fn thread_names(index: &Path) -> HashMap<String, String> {
     lines(index)
@@ -155,5 +161,7 @@ mod tests {
             .collect();
         assert_eq!(summary, [("Refactor", "b"), ("add tests", "a")]);
         assert_eq!(found[0].resume_args[0], "resume");
+        assert_eq!(thread_name(home.path(), "b").as_deref(), Some("Refactor"));
+        assert_eq!(thread_name(home.path(), "a"), None);
     }
 }

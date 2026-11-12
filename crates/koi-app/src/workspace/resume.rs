@@ -5,11 +5,14 @@
 //! resume file. OpenCode names its terminal after the conversation, which is
 //! then looked up by title. Agents started by hand in a session's shell
 //! report nothing, so their conversation is looked up in their history.
+//!
+//! Codex titles its conversations as it goes; each report renames the
+//! session after that title unless the user named it.
 
 use std::path::Path;
 
 use gpui_kit::*;
-use koi_core::history::{entered_conversation, past_sessions, session_titled};
+use koi_core::history::{conversation_title, entered_conversation, past_sessions, session_titled};
 use koi_core::integration::Integration;
 use koi_core::{Agent, AppPaths, SessionId, Workspace};
 
@@ -59,6 +62,21 @@ pub(super) fn apply_resume(
 }
 
 impl WorkspaceView {
+    /// Names session `id` after the title its agent gave the conversation,
+    /// for agents that give one.
+    pub(super) fn name_after_agent_title(&mut self, id: SessionId) -> bool {
+        let Some(record) = self.workspace.session(id) else {
+            return false;
+        };
+        let Some(integration) = self.agent(&record.agent).and_then(Integration::for_agent) else {
+            return false;
+        };
+        let Some(title) = conversation_title(integration, self.paths.home(), &record.resume) else {
+            return false;
+        };
+        self.workspace.name_after_agent(id, &title)
+    }
+
     /// Looks up the conversation of the agent started by hand in session
     /// `id`: the latest one in its directory saved since the agent started
     /// that no other session holds. Once found, a restart reopens it.

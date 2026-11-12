@@ -76,6 +76,21 @@ pub fn conversation_held(integration: Integration, home: &Path, resume: &[String
     }
 }
 
+/// The title the agent itself gave the conversation that `resume` reopens,
+/// for agents that title their conversations as they go.
+pub fn conversation_title(
+    integration: Integration,
+    home: &Path,
+    resume: &[String],
+) -> Option<String> {
+    match integration {
+        Integration::Codex => integration
+            .conversation_id(resume)
+            .and_then(|id| codex::thread_name(home, id)),
+        Integration::Claude | Integration::Pi | Integration::OpenCode => None,
+    }
+}
+
 /// The conversation of an agent started by hand at `since`, among
 /// `sessions` listed most recent first: the latest one saved since then whose
 /// resume arguments are not `held` by another session.
