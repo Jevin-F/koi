@@ -10,9 +10,13 @@
 //! session after that title unless the user named it.
 
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 use gpui_kit::*;
-use koi_core::history::{conversation_title, entered_conversation, past_sessions, session_titled};
+use koi_core::history::{
+    conversation_title, entered_conversation, past_sessions, session_titled,
+    started_conversation_title,
+};
 use koi_core::integration::Integration;
 use koi_core::{Agent, AppPaths, SessionId, Workspace};
 
@@ -20,6 +24,12 @@ use super::WorkspaceView;
 
 /// Latest conversations searched for the one of an agent started by hand.
 const ENTERED_CANDIDATES: usize = 8;
+/// Seconds after a first prompt at which Codex's title is looked for; it
+/// usually appears within a few.
+const TITLE_PROBES: [u64; 4] = [3, 8, 15, 30];
+/// How long before the agent starts working its conversation may have been
+/// saved.
+const PROMPT_SAVE_SLACK: Duration = Duration::from_secs(10);
 
 /// Applies reports left on disk when Koi quit before the watcher handled them.
 pub(super) fn recover_resumes(
@@ -62,6 +72,56 @@ pub(super) fn apply_resume(
 }
 
 impl WorkspaceView {
+    /// Looks a few times for the title Codex gives the conversation `prompt`
+    /// starts, before Codex reports the conversation at the end of the turn.
+    pub(super) fn probe_agent_title(
+        &mut self,
+        id: SessionId,
+        prompt: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(record) = self.workspace.session(id) else {
+            return;
+        };
+        let Some(running) = self.running.get(&id) else {
+            return;
+        };
+        if running.integration != Some(Integration::Codex) || !record.resume.is_empty() {
+            return;
+        }
+        let (home, dir) = (self.paths.home().to_owned(), record.dir.clone());
+        let since = SystemTime::now() - PROMPT_SAVE_SLACK;
+        let probe = cx.spawn_in(window, async move |this, cx| {
+            let mut waited = 0;
+            for at in TITLE_PROBES {
+                cx.background_executor()
+                    .timer(Duration::from_secs(at - waited))
+                    .await;
+                waited = at;
+                let (home, dir, prompt) = (home.clone(), dir.clone(), prompt.clone());
+                let title = cx
+                    .background_spawn(async move {
+                        started_conversation_title(Integration::Codex, &home, &dir, &prompt, since)
+                    })
+                    .await;
+                if let Some(title) = title {
+                    this.update_in(cx, |this, window, cx| {
+                        if this.workspace.name_after_agent(id, &title) {
+                            this.persist(window, cx);
+                            cx.notify();
+                        }
+                    })
+                    .ok();
+                    return;
+                }
+            }
+        });
+        if let Some(running) = self.running.get_mut(&id) {
+            running.title_probe = Some(probe);
+        }
+    }
+
     /// Names session `id` after the title its agent gave the conversation,
     /// for agents that give one.
     pub(super) fn name_after_agent_title(&mut self, id: SessionId) -> bool {

@@ -91,6 +91,22 @@ pub fn conversation_title(
     }
 }
 
+/// The title the agent gave the conversation in `cwd` that `prompt` started
+/// since `since`, for agents that title it before telling Koi which
+/// conversation it is.
+pub fn started_conversation_title(
+    integration: Integration,
+    home: &Path,
+    cwd: &Path,
+    prompt: &str,
+    since: SystemTime,
+) -> Option<String> {
+    match integration {
+        Integration::Codex => codex::title_of_started(home, cwd, prompt, since),
+        Integration::Claude | Integration::Pi | Integration::OpenCode => None,
+    }
+}
+
 /// The conversation of an agent started by hand at `since`, among
 /// `sessions` listed most recent first: the latest one saved since then whose
 /// resume arguments are not `held` by another session.

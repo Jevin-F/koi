@@ -282,10 +282,11 @@ impl WorkspaceView {
         if turn_saved {
             self.adopt_entered_conversation(id, window, cx);
         }
-        if let Some((prompt, _)) = prompt
-            && self.workspace.auto_name_session(id, &prompt)
-        {
-            self.persist(window, cx);
+        if let Some((prompt, _)) = prompt {
+            if self.workspace.auto_name_session(id, &prompt) {
+                self.persist(window, cx);
+            }
+            self.probe_agent_title(id, prompt, window, cx);
         }
         cx.notify();
 

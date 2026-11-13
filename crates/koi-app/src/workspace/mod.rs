@@ -113,6 +113,8 @@ struct Running {
     prompt: Option<(String, Instant)>,
     /// Finished a turn or asked something while the user was not looking.
     unseen: bool,
+    /// Looks for the title the agent gives a new conversation.
+    title_probe: Option<Task<()>>,
     _events: Subscription,
 }
 
@@ -407,6 +409,7 @@ impl WorkspaceView {
                 watches_output,
                 prompt: None,
                 unseen: false,
+                title_probe: None,
                 _events: events,
             },
         );
