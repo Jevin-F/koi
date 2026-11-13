@@ -34,13 +34,13 @@ impl WorkspaceView {
     }
 
     /// The sidebar's "more" button. Its menu shows all projects or picks
-    /// which ones are listed.
+    /// which ones are listed, in alphabetical order.
     pub(super) fn render_sidebar_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         let view = cx.entity().downgrade();
         let projects: Vec<(PathBuf, String, bool)> = self
             .workspace
-            .projects
-            .iter()
+            .projects_by_name()
+            .into_iter()
             .map(|project| (project.root.clone(), project.name(), project.hidden))
             .collect();
         Button::new("sidebar-menu")

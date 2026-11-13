@@ -204,6 +204,15 @@ impl Workspace {
         }
     }
 
+    /// Projects in alphabetical order of their names, ignoring case, for
+    /// picking one from a list.
+    pub fn projects_by_name(&self) -> Vec<&Project> {
+        let mut projects: Vec<&Project> = self.projects.iter().collect();
+        projects
+            .sort_by_cached_key(|project| (project.name().to_lowercase(), project.root.clone()));
+        projects
+    }
+
     /// Sessions of projects that are not hidden, in creation order.
     pub fn shown_sessions(&self) -> impl Iterator<Item = &SessionRecord> {
         self.sessions
@@ -650,6 +659,20 @@ mod tests {
                 .contains("collapsed"),
             "expanded projects save as before"
         );
+    }
+
+    #[test]
+    fn projects_are_listed_by_name_ignoring_case() {
+        let mut workspace = Workspace::default();
+        for root in ["/w/koi", "/a/Zebra", "/b/apple", "/c/Banana"] {
+            workspace.add_project(root.into());
+        }
+        let names: Vec<String> = workspace
+            .projects_by_name()
+            .iter()
+            .map(|project| project.name())
+            .collect();
+        assert_eq!(names, ["apple", "Banana", "koi", "Zebra"]);
     }
 
     #[test]
