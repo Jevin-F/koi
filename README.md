@@ -3,6 +3,26 @@
 A native macOS app for running and watching many CLI coding agents
 (pi, Claude Code, Codex) from a single window.
 
+## Install
+
+Requires macOS 13 or later.
+
+```sh
+brew install --cask jevin-f/koi/koi
+```
+
+Or download `Koi-<version>-arm64.dmg` (Apple Silicon) or
+`Koi-<version>-x86_64.dmg` (Intel) from the
+[latest release](https://github.com/Jevin-F/koi/releases/latest) and drag Koi
+into Applications.
+
+Koi is not notarized yet. The Homebrew cask clears the quarantine flag for you;
+if macOS refuses to open a downloaded copy, run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Koi.app
+```
+
 ## Build
 
 ```sh
@@ -49,6 +69,18 @@ For a signed PKG, also set `KOI_INSTALLER_IDENTITY` and pass `--pkg`. The script
 signs the app with the hardened runtime, submits the package for Apple's
 notarization, and staples the ticket. Check available certificates with
 `security find-identity -v -p codesigning`.
+
+## Release
+
+Set `version` in `Cargo.toml`, commit, then push a matching tag:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The release workflow builds unsigned DMGs for Apple Silicon and Intel and
+publishes them as a GitHub release. Then update the cask in
+[homebrew-koi](https://github.com/Jevin-F/homebrew-koi).
 
 ## Layout
 

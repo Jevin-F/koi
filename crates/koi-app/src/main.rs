@@ -22,7 +22,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 const APP_NAME: &str = "Koi";
 /// Must match `CFBundleIdentifier` in `packaging/macos/Info.plist`, or macOS
 /// drops the app's notifications.
-const BUNDLE_ID: &str = "dev.koi.Koi";
+const BUNDLE_ID: &str = "link.ironman.koi";
 
 fn main() {
     let args: Vec<String> = std::env::args_os()

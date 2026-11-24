@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>dev.koi.Koi</string>
+    <string>link.ironman.koi</string>
     <key>CFBundleName</key>
     <string>Koi</string>
     <key>CFBundleDisplayName</key>

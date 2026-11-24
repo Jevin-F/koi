@@ -49,12 +49,12 @@ if [ "$format" = dmg ]; then
     hdiutil verify "$package"
 elif [ -n "${KOI_INSTALLER_IDENTITY:-}" ]; then
     pkgbuild --component "$app" --install-location /Applications \
-        --identifier dev.koi.Koi.pkg --version "$version" \
+        --identifier link.ironman.koi.pkg --version "$version" \
         --sign "$KOI_INSTALLER_IDENTITY" "$package"
     pkgutil --check-signature "$package"
 else
     pkgbuild --component "$app" --install-location /Applications \
-        --identifier dev.koi.Koi.pkg --version "$version" "$package"
+        --identifier link.ironman.koi.pkg --version "$version" "$package"
 fi
 
 if [ -n "${KOI_NOTARY_PROFILE:-}" ]; then
