@@ -4,6 +4,7 @@ description = "Terminal sessions for Koi: PTY processes, terminal state and inpu
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 alacritty_terminal.workspace = true

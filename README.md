@@ -59,3 +59,7 @@ notarization, and staples the ticket. Check available certificates with
 | `crates/koi-term` | Terminal sessions: PTY processes, screen state, input encoding (no UI) |
 | `packaging/macos` | `Info.plist` for the app bundle |
 | `scripts` | Build helpers |
+
+## License
+
+[MIT](LICENSE)

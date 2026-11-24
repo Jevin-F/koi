@@ -4,6 +4,7 @@ description = "Koi domain logic: projects, git worktrees, agents, configuration 
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 serde.workspace = true
