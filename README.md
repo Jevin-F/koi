@@ -1,7 +1,25 @@
 # Koi
 
 A native macOS app for running and watching many CLI coding agents
-(pi, Claude Code, Codex) from a single window.
+(pi, Claude Code, Codex, OpenCode) from a single window.
+
+![Overview of every running agent](docs/screenshots/overview.png)
+
+## Features
+
+- **Many agents at once.** Each agent runs in its own terminal tab, grouped by
+  project and git worktree, with live CPU and memory use.
+- **See who needs you.** The overview shows what every agent is doing; a
+  notification and Dock badge tell you when one is waiting for input.
+- **Review, commit, push.** Inspect a worktree's diff, commit and push without
+  leaving Koi.
+- **Browse and edit files** of the project beside the agent.
+- **Pick up past conversations.** Search earlier agent sessions and resume
+  one in a new tab.
+
+| Agents side by side | Review changes | Edit files |
+| --- | --- | --- |
+| ![Agents](docs/screenshots/agents.png) | ![Changes](docs/screenshots/changes.png) | ![Files](docs/screenshots/files.png) |
 
 ## Install
 
@@ -90,6 +108,7 @@ publishes them as a GitHub release. Then update the cask in
 | `crates/koi-core` | Projects, git worktrees, agents, configuration, saved workspace (no UI) |
 | `crates/koi-term` | Terminal sessions: PTY processes, screen state, input encoding (no UI) |
 | `packaging/macos` | `Info.plist` for the app bundle |
+| `docs/screenshots` | Images used in this README |
 | `scripts` | Build helpers |
 
 ## License
