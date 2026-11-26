@@ -3618,7 +3618,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "koi-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "block2 0.6.2",
  "gpui-kit",
@@ -3635,7 +3635,7 @@ dependencies = [
 
 [[package]]
 name = "koi-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3644,7 +3644,7 @@ dependencies = [
 
 [[package]]
 name = "koi-term"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alacritty_terminal",
  "portable-pty",

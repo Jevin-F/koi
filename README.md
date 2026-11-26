@@ -92,7 +92,8 @@ notarization, and staples the ticket. Check available certificates with
 
 ## Release
 
-Set `version` in `Cargo.toml`, commit, then push a matching tag:
+Set `version` in `Cargo.toml`, add the release to `CHANGELOG.md`, commit,
+then push a matching tag:
 
 ```sh
 git tag v0.1.0 && git push origin v0.1.0
