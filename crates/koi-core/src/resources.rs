@@ -1,11 +1,12 @@
-//! Running processes, read with `ps`: what they use and which ones run
-//! below a terminal.
+//! Running processes, read with `ps`: what they use, which ones run below a
+//! terminal and which session's tag they carry.
 
 use std::collections::HashMap;
 use std::io;
 use std::process::Command;
 
 use crate::Agent;
+use crate::services::{SESSION_ENV, Tag};
 
 /// What a set of processes uses.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -32,6 +33,8 @@ struct Process {
     parent: u32,
     usage: Usage,
     command: String,
+    /// The session tag in its environment; unreadable for system programs.
+    tag: Option<Tag>,
 }
 
 /// A snapshot of the running processes.
@@ -42,17 +45,36 @@ pub struct ProcessTable {
 }
 
 impl ProcessTable {
-    /// Takes a snapshot of all processes.
+    /// Takes a snapshot of all processes, with their session tags.
     pub fn read() -> io::Result<Self> {
-        let output = Command::new("ps")
-            .args(["-A", "-ww", "-o", "pid=,ppid=,rss=,%cpu=,command="])
-            .output()?;
-        if !output.status.success() {
-            return Err(io::Error::other(
-                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            ));
+        let mut table = Self::parse(&ps(&["-o", "pid=,ppid=,rss=,%cpu=,command="])?);
+        table.read_tags(&ps(&["-E", "-o", "pid=,command="])?);
+        Ok(table)
+    }
+
+    /// Takes the session tags from lines of `pid command environment`, as
+    /// `ps -E` prints them. Only the part after the known command line is
+    /// searched, so a tag passed as an argument is not taken for one.
+    pub(crate) fn read_tags(&mut self, output: &str) {
+        let prefix = format!("{SESSION_ENV}=");
+        let tags: HashMap<u32, Tag> = output
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim_start();
+                let (pid, rest) = line.split_once(char::is_whitespace)?;
+                let pid: u32 = pid.parse().ok()?;
+                let command = self.command(pid)?;
+                let environment = rest.trim_start().strip_prefix(command)?;
+                let tag = environment
+                    .split_whitespace()
+                    .find_map(|word| word.strip_prefix(&prefix))
+                    .and_then(Tag::parse)?;
+                Some((pid, tag))
+            })
+            .collect();
+        for process in &mut self.processes {
+            process.tag = tags.get(&process.pid).copied();
         }
-        Ok(Self::parse(&String::from_utf8_lossy(&output.stdout)))
     }
 
     /// Parses lines of `pid ppid rss-in-KiB cpu-percent command`, skipping malformed ones.
@@ -74,6 +96,7 @@ impl ProcessTable {
                         cpu,
                     },
                     command,
+                    tag: None,
                 })
             })
             .collect();
@@ -136,6 +159,21 @@ impl ProcessTable {
             .map(|process| process.command.as_str())
     }
 
+    /// The parent of process `pid`, if it is running.
+    pub(crate) fn parent(&self, pid: u32) -> Option<u32> {
+        self.processes
+            .iter()
+            .find(|process| process.pid == pid)
+            .map(|process| process.parent)
+    }
+
+    /// Every process with its tag, if it carries one.
+    pub(crate) fn tags(&self) -> impl Iterator<Item = (u32, Option<Tag>)> + '_ {
+        self.processes
+            .iter()
+            .map(|process| (process.pid, process.tag))
+    }
+
     /// Every process below `pid`, parents before their children.
     fn descendants(&self, pid: u32) -> Vec<&Process> {
         let mut found = Vec::new();
@@ -151,9 +189,20 @@ impl ProcessTable {
     }
 }
 
+/// Runs `ps` over all processes with full command lines, adding `args`.
+fn ps(args: &[&str]) -> io::Result<String> {
+    let output = Command::new("ps").args(["-A", "-ww"]).args(args).output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(
+            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 /// Whether the command line `command` runs `program`: directly, or as a
 /// script handed to Node.js or Bun. Pi also runs from its package's `cli.js`.
-fn runs(command: &str, program: &str) -> bool {
+pub(crate) fn runs(command: &str, program: &str) -> bool {
     let mut words = command.split_whitespace();
     let Some(first) = words.next().map(base_name) else {
         return false;
@@ -269,6 +318,27 @@ mod tests {
         assert!(!runs("/usr/bin/node /opt/copy/cli.js", "pi"));
         assert!(!runs("grep pi", "pi"));
         assert!(!runs("/bin/sh -c if opencode; then x; fi", "opencode"));
+    }
+
+    #[test]
+    fn reads_tags_from_the_environment_only() {
+        let mut table = ProcessTable::parse(
+            "10 1 1 0.0 node server.js\n\
+             11 1 1 0.0 echo KOI_SESSION=5:7\n\
+             12 1 1 0.0 sleep 9\n",
+        );
+        table.read_tags(
+            "   10 node server.js HOME=/x KOI_SESSION=5:7\n\
+             11 echo KOI_SESSION=5:7 HOME=/x\n\
+             12 sleep 9\n\
+             13 gone KOI_SESSION=5:7\n",
+        );
+        let tags: HashMap<u32, Option<Tag>> = table.tags().collect();
+        assert_eq!(tags[&10], Tag::parse("5:7"));
+        assert_eq!(tags[&11], None);
+        assert_eq!(tags[&12], None);
+        assert_eq!(table.parent(10), Some(1));
+        assert_eq!(table.parent(13), None);
     }
 
     #[test]

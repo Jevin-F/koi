@@ -2,18 +2,14 @@
 //! started in the background, which outlive the terminal otherwise: when a
 //! session is closed, and when Koi quits.
 
-use std::time::Duration;
-
 use gpui_kit::*;
 use koi_core::SessionId;
-use koi_core::process_stop::{self, Target};
+use koi_core::process_stop::{self, GRACE, Target};
 use koi_core::resources::ProcessTable;
+use koi_core::services::session_roots;
 use rust_i18n::t;
 
 use super::WorkspaceView;
-
-/// How long processes get to end on their own before they are killed.
-const GRACE: Duration = Duration::from_secs(2);
 
 impl WorkspaceView {
     /// Closes the terminals of sessions `ids` and stops every process they
@@ -55,15 +51,18 @@ impl WorkspaceView {
         .detach();
     }
 
-    /// The processes of sessions `ids` as they run now.
+    /// The processes of sessions `ids` as they run now: those below their
+    /// terminals and those that left them but carry their tag.
     fn targets(&self, ids: &[SessionId], cx: &App) -> std::io::Result<Vec<Target>> {
-        let roots: Vec<u32> = ids
-            .iter()
-            .filter_map(|id| self.running.get(id)?.view.read(cx).pid())
-            .collect();
-        if roots.is_empty() {
+        let owners: Vec<_> = ids.iter().filter_map(|id| self.owner(*id, cx)).collect();
+        if owners.is_empty() {
             return Ok(Vec::new());
         }
-        Ok(process_stop::targets(&ProcessTable::read()?, &roots))
+        let table = ProcessTable::read()?;
+        let roots: Vec<u32> = owners
+            .into_iter()
+            .flat_map(|owner| session_roots(&table, owner))
+            .collect();
+        Ok(process_stop::targets(&table, &roots))
     }
 }

@@ -3,12 +3,15 @@
 use gpui_kit::*;
 use rust_i18n::t;
 
-use crate::{APP_NAME, main_window, settings_view, terminal, workspace};
+use crate::{
+    APP_NAME, main_window, services_view, settings_view, terminal, windows_menu, workspace,
+};
 
 actions!(
     koi,
     [
         OpenSettings,
+        OpenServices,
         Quit,
         Hide,
         HideOthers,
@@ -22,6 +25,7 @@ actions!(
 /// [`crate::shortcuts`]; the menu bar is built by [`set_menus`].
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &OpenSettings, cx| settings_view::open(cx));
+    cx.on_action(|_: &OpenServices, cx| services_view::open(cx));
     cx.on_action(|_: &Quit, cx| main_window::quit(cx));
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
@@ -36,9 +40,17 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &CloseWindow, cx| main_window::close(cx));
 }
 
-/// Builds the menu bar in the current language, with the current shortcuts.
+/// Builds the menu bar and the Dock icon's menu in the current language,
+/// with the current shortcuts.
 pub fn set_menus(cx: &mut App) {
     cx.set_menus(menus());
+    // macOS lists open windows in the window menu and the Dock icon's menu
+    // only once it knows which menu that is.
+    windows_menu::register(&t!("menu.window"));
+    cx.set_dock_menu(vec![
+        MenuItem::action(t!("action.services"), OpenServices),
+        MenuItem::action(t!("action.settings"), OpenSettings),
+    ]);
 }
 
 fn menus() -> Vec<Menu> {
@@ -67,6 +79,8 @@ fn menus() -> Vec<Menu> {
             MenuItem::action(t!("action.toggle_files"), workspace::ToggleFiles),
             MenuItem::action(t!("action.next_tab"), workspace::NextTab),
             MenuItem::action(t!("action.previous_tab"), workspace::PreviousTab),
+            MenuItem::separator(),
+            MenuItem::action(t!("action.services"), OpenServices),
         ]),
         Menu::new(t!("menu.window")).items([
             MenuItem::action(t!("action.minimize"), Minimize),

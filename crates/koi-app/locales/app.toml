@@ -24,6 +24,10 @@ zh-CN = "窗口"
 en = "Settings…"
 zh-CN = "设置…"
 
+[action.services]
+en = "Background Services"
+zh-CN = "后台服务"
+
 [action.hide]
 en = "Hide %{app}"
 zh-CN = "隐藏 %{app}"
@@ -444,6 +448,52 @@ zh-CN = "RSS"
 [resources.running]
 en = "Running sessions: %{count}"
 zh-CN = "%{count} 个会话运行中"
+
+# The background services window.
+
+[services.title]
+en = "%{app} Background Services"
+zh-CN = "%{app} 后台服务"
+
+[services.count]
+en = "Background services: %{count}"
+zh-CN = "%{count} 个后台服务"
+
+[services.hint]
+en = "Processes agents left running apart from their terminal, or that listen on a port."
+zh-CN = "agent 启动后脱离了终端、或在监听端口的进程。"
+
+[services.empty]
+en = "No background services"
+zh-CN = "没有后台服务"
+
+[services.leftover]
+en = "Left by an earlier Koi"
+zh-CN = "之前的 Koi 遗留"
+
+[services.closed_session]
+en = "Closed session"
+zh-CN = "已关闭的会话"
+
+[services.stop]
+en = "Stop"
+zh-CN = "停止"
+
+[services.stop_all]
+en = "Stop all"
+zh-CN = "全部停止"
+
+[services.stop_everything]
+en = "Stop every service"
+zh-CN = "停止所有服务"
+
+[services.stopping]
+en = "Stopping…"
+zh-CN = "停止中…"
+
+[services.stop_failed]
+en = "Could not stop the services: %{error}"
+zh-CN = "无法停止服务：%{error}"
 
 # Dialogs.
 

@@ -101,6 +101,29 @@ pub fn close(cx: &mut App) {
     }
 }
 
+/// Runs `update` on the workspace in the main window, if it is open.
+pub fn update_workspace(
+    cx: &mut App,
+    update: impl FnOnce(&mut WorkspaceView, &mut Window, &mut Context<WorkspaceView>),
+) {
+    let Some((handle, view)) = cx
+        .try_global::<MainWindow>()
+        .map(|main| (main.handle, main.view.clone()))
+    else {
+        return;
+    };
+    handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |workspace, cx| update(workspace, window, cx))
+        })
+        .ok();
+}
+
+/// The workspace in the main window, if it is open.
+pub fn workspace(cx: &App) -> Option<Entity<WorkspaceView>> {
+    cx.try_global::<MainWindow>().map(|main| main.view.clone())
+}
+
 /// Brings the app and its window back to the front.
 pub fn reopen(cx: &mut App) {
     cx.activate(true);

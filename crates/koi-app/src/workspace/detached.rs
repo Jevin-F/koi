@@ -111,11 +111,7 @@ impl WorkspaceView {
         let Some(record) = self.workspace.session(id) else {
             return;
         };
-        let title = format!(
-            "{} — {}",
-            self.session_name(record),
-            self.place_name(record)
-        );
+        let title = self.session_title(record);
         let (workspace, main) = (cx.entity(), window.window_handle());
         // A new window is drawn as it opens, and drawing it reads this view,
         // which cannot be read while it is being updated as it is here.

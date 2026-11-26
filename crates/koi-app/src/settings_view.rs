@@ -33,6 +33,8 @@ impl Global for SettingsWindow {}
 
 /// Brings the settings window to the front, opening it if needed.
 pub fn open(cx: &mut App) {
+    // Also reached from the Dock menu while another app is in front.
+    cx.activate(true);
     if let Some(handle) = cx.try_global::<SettingsWindow>().map(|window| window.0)
         && handle
             .update(cx, |_, window, _| window.activate_window())

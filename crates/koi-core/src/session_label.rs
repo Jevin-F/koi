@@ -11,6 +11,16 @@ pub fn bounded(text: &str) -> String {
     label.trim_end().to_owned()
 }
 
+/// `text` cut to at most `max_chars` characters, ending in `…` when cut,
+/// for places that cannot cut it themselves, such as window titles.
+pub fn shortened(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_owned();
+    }
+    let kept: String = text.chars().take(max_chars.saturating_sub(1)).collect();
+    format!("{}…", kept.trim_end())
+}
+
 /// First meaningful line of a message.
 pub fn from_message(message: &str) -> Option<String> {
     message.lines().find_map(|line| {
@@ -82,6 +92,14 @@ mod tests {
         assert_eq!(from_message(&long), Some("修".repeat(MAX_CHARS)));
         let sentence = "Investigate why the release build fails on the signing step";
         assert_eq!(from_message(sentence).as_deref(), Some(sentence));
+    }
+
+    #[test]
+    fn shortens_with_an_ellipsis_only_when_needed() {
+        assert_eq!(shortened("修复状态检查", 6), "修复状态检查");
+        assert_eq!(shortened("修复状态检查失败", 6), "修复状态检…");
+        assert_eq!(shortened("fix the build", 6), "fix t…");
+        assert_eq!(shortened("fix   the", 6), "fix…");
     }
 
     #[test]

@@ -22,6 +22,7 @@ mod paths;
 pub mod process_stop;
 pub mod project_files;
 pub mod resources;
+pub mod services;
 pub mod session_label;
 pub mod settings;
 pub mod store;

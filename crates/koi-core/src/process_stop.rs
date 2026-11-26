@@ -11,6 +11,9 @@ use crate::resources::ProcessTable;
 /// How often stopping processes are checked on.
 const POLL: Duration = Duration::from_millis(100);
 
+/// How long processes get to end on their own before they are killed.
+pub const GRACE: Duration = Duration::from_secs(2);
+
 /// A process to stop. Its command line tells it apart from a later process
 /// that is given the same pid.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,17 +22,20 @@ pub struct Target {
     command: String,
 }
 
-/// The processes of the terminals running `roots`: each root and every
-/// process below it, as `table` lists them.
+/// Each of `roots` and every process below it, as `table` lists them, once
+/// even where families overlap.
 pub fn targets(table: &ProcessTable, roots: &[u32]) -> Vec<Target> {
-    roots
+    let mut found: Vec<Target> = roots
         .iter()
         .flat_map(|&root| table.family(root))
         .map(|(pid, command)| Target {
             pid,
             command: command.to_owned(),
         })
-        .collect()
+        .collect();
+    found.sort_unstable_by_key(|target| target.pid);
+    found.dedup_by_key(|target| target.pid);
+    found
 }
 
 /// Asks `targets` to end, then kills those still running after `grace`.
@@ -89,11 +95,10 @@ mod tests {
              102 101 1 0.0 pnpm dev\n\
              200 1 1 0.0 /bin/zsh -i\n",
         );
-        let mut pids: Vec<u32> = targets(&table, &[100, 999])
+        let pids: Vec<u32> = targets(&table, &[100, 102, 999])
             .into_iter()
             .map(|target| target.pid)
             .collect();
-        pids.sort_unstable();
         assert_eq!(pids, [100, 101, 102]);
     }
 

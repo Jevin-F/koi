@@ -16,6 +16,8 @@ A native macOS app for running and watching many CLI coding agents
 - **Browse and edit files** of the project beside the agent.
 - **Pick up past conversations.** Search earlier agent sessions and resume
   one in a new tab.
+- **Keep background services in check.** See the dev servers and watchers
+  agents leave running, with their ports, and stop them in one click.
 
 | Agents side by side | Review changes | Edit files |
 | --- | --- | --- |

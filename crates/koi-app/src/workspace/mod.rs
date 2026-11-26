@@ -24,6 +24,7 @@ mod refresh;
 mod replies;
 mod resources;
 mod resume;
+mod services;
 mod session_end;
 mod sidebar;
 mod split;
@@ -48,6 +49,8 @@ use koi_core::integration::{
     EXECUTABLE_ENV, Integration, PI_TERMINAL_ENV, RESUME_ENV, STATUS_ENV, TITLE_ENV,
 };
 use koi_core::resources::Usage;
+use koi_core::services::{Group, SESSION_ENV, Tag};
+use koi_core::session_label;
 use koi_core::{
     Activity, Agent, AppPaths, Config, SessionId, SessionRecord, Workspace, cycle, shell_command,
     store,
@@ -59,10 +62,15 @@ use crate::APP_NAME;
 use crate::fs_watcher::FsWatcher;
 use crate::terminal::{TerminalEvent, TerminalView};
 pub use files_view::{CONTEXT as FILES_CONTEXT, Save};
+pub use resources::INTERVAL as SAMPLE_INTERVAL;
+pub use services::SourceLabel;
 use status::Status;
 use views::Panel;
 
 pub(crate) const CONTEXT: &str = "Workspace";
+
+/// Characters of the session name kept in the window title.
+const TITLE_NAME_CHARS: usize = 30;
 
 actions!(
     workspace,
@@ -170,6 +178,8 @@ pub struct WorkspaceView {
     reply_cache: Replies,
     /// Samples resources while the window is active.
     sampler: Option<Task<()>>,
+    /// Background services of each session, as last sampled.
+    services: Vec<Group>,
     /// Number of unseen sessions last shown on the Dock icon.
     badge: usize,
     _watch_tasks: Vec<Task<()>>,
@@ -245,6 +255,7 @@ impl WorkspaceView {
             replies: HashMap::new(),
             reply_cache: Replies::default(),
             sampler: None,
+            services: Vec::new(),
             badge: 0,
             _watch_tasks: watch_tasks.into_iter().flatten().collect(),
         };
@@ -263,11 +274,11 @@ impl WorkspaceView {
         activity::handle_notification_clicks(window, cx);
         Self::end_sessions_on_quit(cx);
         cx.observe_window_activation(window, |this, window, cx| {
-            this.track_resources(window.is_window_active(), window, cx);
+            this.track_resources(window, cx);
             this.mark_seen(window, cx);
         })
         .detach();
-        this.track_resources(window.is_window_active(), window, cx);
+        this.track_resources(window, cx);
         this.focus_active(window, cx);
         window.defer(cx, move |window, cx| {
             for problem in problems {
@@ -351,6 +362,8 @@ impl WorkspaceView {
         for (key, value) in PI_TERMINAL_ENV {
             command.env(key, value);
         }
+        // Inherited by services that leave the terminal, so they can be found.
+        command.env(SESSION_ENV, Tag::own(record.id).to_string());
         if self.status_watcher.is_some() && program.is_some() {
             let status_file = self.paths.status_file(record.id);
             // A file left by an earlier run would report a stale state.
@@ -697,18 +710,24 @@ impl WorkspaceView {
             .unwrap_or_else(|| self.agent_name(record))
     }
 
-    /// Title for the window: the active session's agent and branch.
+    /// Window title of a session: its name, shortened as macOS shows titles
+    /// whole in the Dock and window menus, and its branch.
+    fn session_title(&self, record: &SessionRecord) -> String {
+        format!(
+            "{} — {}",
+            session_label::shortened(&self.session_name(record), TITLE_NAME_CHARS),
+            self.place_name(record)
+        )
+    }
+
+    /// Title for the window: the active session's, or the app's name.
     fn title(&self) -> String {
         match self
             .workspace
             .active
             .and_then(|id| self.workspace.session(id))
         {
-            Some(record) => format!(
-                "{} — {}",
-                self.session_name(record),
-                self.place_name(record)
-            ),
+            Some(record) => self.session_title(record),
             None => APP_NAME.to_owned(),
         }
     }

@@ -40,6 +40,7 @@ pub fn shortcuts() -> Vec<Shortcut> {
     let workspace = Some(workspace::CONTEXT);
     vec![
         shortcut::<app_menu::OpenSettings>("action.settings", "cmd-,", None),
+        shortcut::<app_menu::OpenServices>("action.services", "cmd-shift-b", None),
         shortcut::<app_menu::Quit>("action.quit", "cmd-q", None),
         shortcut::<app_menu::Hide>("action.hide", "cmd-h", None),
         shortcut::<app_menu::HideOthers>("action.hide_others", "alt-cmd-h", None),
@@ -60,6 +61,15 @@ pub fn shortcuts() -> Vec<Shortcut> {
 }
 
 impl Shortcut {
+    /// Whether `binding` is this shortcut's: the same command in the same
+    /// context.
+    fn binds(&self, binding: &KeyBinding) -> bool {
+        let context = self
+            .context
+            .and_then(|context| KeyBindingContextPredicate::parse(context).ok());
+        self.name == binding.action().name() && binding.predicate().as_deref() == context.as_ref()
+    }
+
     /// The keys in effect: the user's choice if it is valid, else the default.
     pub fn keys(&self, overrides: &BTreeMap<String, String>) -> String {
         overrides
@@ -79,18 +89,16 @@ pub fn is_valid(keys: &str) -> bool {
 }
 
 /// Binds the shortcuts with `overrides` applied, replacing their earlier
-/// bindings and keeping every other binding as it was.
+/// bindings and keeping every other binding as it was, including fixed ones
+/// of the same command in another context, such as cmd-w closing secondary
+/// windows.
 pub fn bind(overrides: &BTreeMap<String, String>, cx: &mut App) {
     let shortcuts = shortcuts();
     let keymap = cx.key_bindings();
     let mut keymap = keymap.borrow_mut();
     let kept: Vec<KeyBinding> = keymap
         .bindings()
-        .filter(|binding| {
-            shortcuts
-                .iter()
-                .all(|shortcut| shortcut.name != binding.action().name())
-        })
+        .filter(|binding| !shortcuts.iter().any(|shortcut| shortcut.binds(binding)))
         .cloned()
         .collect();
     keymap.clear();

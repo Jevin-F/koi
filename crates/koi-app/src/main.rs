@@ -10,10 +10,12 @@ mod i18n;
 mod main_window;
 mod native_appearance;
 mod picker;
+mod services_view;
 mod settings;
 mod settings_view;
 mod shortcuts;
 mod terminal;
+mod windows_menu;
 mod workspace;
 
 rust_i18n::i18n!("locales", fallback = "en");
